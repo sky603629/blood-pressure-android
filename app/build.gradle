@@ -1,0 +1,17 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.pressurediary.app"
+    compileSdk 33
+    buildToolsVersion "33.0.0"
+
+    defaultConfig {
+        applicationId "com.pressurediary.app"
+        minSdk 23
+        targetSdk 32
+        versionCode 1
+        versionName "1.0.0"
+    }
+}
