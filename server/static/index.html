@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>家人的血压记录</title>
+  <link rel="stylesheet" href="/dashboard.css">
+  <script src="/dashboard.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><p class="eyebrow">FAMILY HEALTH</p><h1>家人的血压记录</h1><p class="muted">集中查看手机上传的测量记录</p></header>
+    <section id="login" class="panel">
+      <label for="key">查看密钥</label>
+      <input id="key" type="password" autocomplete="off" placeholder="填写服务器生成的网页查看密钥">
+      <button id="connect" class="primary" type="button">查看记录</button>
+      <p class="muted small">密钥仅在当前页面使用，关闭页面后重新填写。</p>
+    </section>
+    <section id="records-panel" hidden>
+      <div class="panel filters">
+        <div><label for="member">家人</label><select id="member"><option value="">全部家人</option></select></div>
+        <div><label for="start">开始日期</label><input id="start" type="date"></div>
+        <div><label for="end">结束日期</label><input id="end" type="date"></div>
+        <div class="actions"><button id="refresh" class="primary" type="button">查看</button><button id="export" type="button">导出 CSV</button><button id="logout" type="button">退出</button></div>
+      </div>
+      <div class="list-heading"><h2>测量记录</h2><span id="count"></span></div>
+      <div id="records" aria-live="polite"></div>
+      <div class="pager"><button id="previous" type="button">上一页</button><span id="page"></span><button id="next" type="button">下一页</button></div>
+      <p class="muted small">这里显示手机保存时成功上传的记录。离线保存的记录不会自动补传；手机后续的编辑、删除不会改变这里的上传存档。</p>
+    </section>
+    <p id="message" role="status"></p>
+  </main>
+</body>
+</html>

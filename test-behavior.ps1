@@ -12,9 +12,15 @@ if (!(Test-Path -LiteralPath $jsonJar)) {
 $sourceDir = Join-Path $projectDir 'app\src\main\java\com\pressurediary\app'
 & (Join-Path $javaDir 'javac.exe') -encoding UTF-8 -cp $jsonJar -d $classesDir (Join-Path $sourceDir 'Measurement.java') (Join-Path $sourceDir 'MeasurementFileTransfer.java') (Join-Path $sourceDir 'ChartViewport.java') (Join-Path $sourceDir 'BloodPressureOcrParser.java') (Join-Path $sourceDir 'LcdReadingConsensus.java') (Join-Path $sourceDir 'LcdScreenLocator.java') (Join-Path $projectDir 'tests\com\pressurediary\app\RegressionTests.java') (Join-Path $projectDir 'tests\com\pressurediary\app\OcrParserTests.java') (Join-Path $projectDir 'tests\com\pressurediary\app\LcdOcrTests.java')
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& (Join-Path $javaDir 'javac.exe') -encoding UTF-8 -cp "$classesDir;$jsonJar" -d $classesDir (Join-Path $sourceDir 'MeasurementSnapshot.java') (Join-Path $sourceDir 'MeasurementUploadProtocol.java') (Join-Path $projectDir 'tests\com\pressurediary\app\UploadProtocolTests.java') (Join-Path $projectDir 'tests\com\pressurediary\app\SyncProtocolTests.java')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & (Join-Path $javaDir 'java.exe') -cp "$classesDir;$jsonJar" com.pressurediary.app.RegressionTests
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & (Join-Path $javaDir 'java.exe') -cp "$classesDir;$jsonJar" com.pressurediary.app.OcrParserTests
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & (Join-Path $javaDir 'java.exe') -cp "$classesDir;$jsonJar" com.pressurediary.app.LcdOcrTests
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& (Join-Path $javaDir 'java.exe') -cp "$classesDir;$jsonJar" com.pressurediary.app.UploadProtocolTests
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& (Join-Path $javaDir 'java.exe') -cp "$classesDir;$jsonJar" com.pressurediary.app.SyncProtocolTests
 exit $LASTEXITCODE

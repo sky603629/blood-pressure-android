@@ -105,6 +105,7 @@ public final class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (database != null) render();
+        MeasurementUploader.onDataChanged(this);
     }
 
     @Override
@@ -378,11 +379,12 @@ public final class MainActivity extends Activity {
     private void showDataManagementMenu() {
         new AlertDialog.Builder(this)
                 .setTitle("数据管理 · " + measurements.size() + " 条记录")
-                .setItems(new String[]{"导出报告（CSV）", "备份全部数据（JSON）", "导入数据（CSV 或 JSON）"},
+                .setItems(new String[]{"导出报告（CSV）", "备份全部数据（JSON）", "导入数据（CSV 或 JSON）", "服务器设置"},
                         (dialog, which) -> {
                             if (which == 0) createReportFile();
                             else if (which == 1) createBackupFile();
                             else if (which == 2) chooseImportFile();
+                            else if (which == 3) ServerSettingsDialog.show(this);
                         })
                 .setNegativeButton("关闭", null)
                 .show();
@@ -435,7 +437,9 @@ public final class MainActivity extends Activity {
         long time = data.getLongExtra(OcrCaptureActivity.EXTRA_TIME, System.currentTimeMillis());
         if (!BloodPressureOcrParser.inRange(0, systolic) || !BloodPressureOcrParser.inRange(1, diastolic) ||
                 !BloodPressureOcrParser.inRange(2, pulse) || diastolic >= systolic) return;
-        database.insert(systolic, diastolic, pulse, time, data.getStringExtra(OcrCaptureActivity.EXTRA_NOTE));
+        String note = data.getStringExtra(OcrCaptureActivity.EXTRA_NOTE);
+        database.insert(systolic, diastolic, pulse, time, note, "camera");
+        MeasurementUploader.onDataChanged(this);
         if (selectedDateStart != null) setSelectedDate(time);
         render();
         Toast.makeText(this, "拍照记录已保存", Toast.LENGTH_SHORT).show();
@@ -480,6 +484,7 @@ public final class MainActivity extends Activity {
                     .setPositiveButton("合并导入", (dialog, which) -> {
                         try {
                             int inserted = database.importRows(batch.measurements);
+                            if (inserted > 0) MeasurementUploader.onDataChanged(this);
                             int skipped = batch.duplicateCount + batch.measurements.size() - inserted;
                             selectedDateStart = null;
                             selectedDateEnd = null;
@@ -1045,10 +1050,12 @@ public final class MainActivity extends Activity {
                 int diaValue = Integer.parseInt(values[1]);
                 int pulseValue = Integer.parseInt(values[2]);
                 if (existing == null) {
-                    database.insert(sysValue, diaValue, pulseValue, selected.getTimeInMillis(), note.getText().toString());
+                    String savedNote = note.getText().toString().trim();
+                    database.insert(sysValue, diaValue, pulseValue, selected.getTimeInMillis(), savedNote);
                 } else {
                     database.update(existing.id, sysValue, diaValue, pulseValue, selected.getTimeInMillis(), note.getText().toString());
                 }
+                MeasurementUploader.onDataChanged(this);
                 if (selectedDateStart != null) setSelectedDate(selected.getTimeInMillis());
                 dialog.dismiss();
                 render();
@@ -1094,6 +1101,7 @@ public final class MainActivity extends Activity {
                 .setNegativeButton("取消", null)
                 .setPositiveButton("删除", (dialog, which) -> {
                     database.delete(item.id);
+                    MeasurementUploader.onDataChanged(this);
                     render();
                     Toast.makeText(this, "记录已删除", Toast.LENGTH_SHORT).show();
                 })

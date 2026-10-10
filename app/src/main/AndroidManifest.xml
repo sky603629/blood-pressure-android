@@ -1,8 +1,7 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-    <!-- Bundled OCR needs no network; remove permissions inherited from SDK dependencies. -->
-    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Optional family-server uploads use HTTPS. Bundled OCR still runs completely offline. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <queries>
         <intent>
             <action android:name="android.media.action.IMAGE_CAPTURE" />
