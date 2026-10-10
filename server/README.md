@@ -14,22 +14,6 @@
 
 右上角齿轮打开“显示设置”，可勾选显示的家人、关闭“全部家人”入口，也可恢复全部显示。只勾选一位时自动隐藏汇总入口；选择多位时，汇总、曲线、分页及 CSV 都只包含勾选的家人。设置仅将家人编号和入口开关保存在当前浏览器的 `localStorage`，刷新、退出及重新登录后保留，不保存密钥或测量值，不影响手机上传和服务器记录。不同浏览器分别设置；隐藏属于显示偏好，查看权限仍由网页密钥决定。
 
-## 海外服务器访问优化
-
-源站由 Caddy 提供 Zstandard/Gzip 压缩。首页给 CSS/JavaScript 添加内容摘要版本号，只有匹配当前版本的静态文件返回 `public, max-age=31536000, immutable`；浏览器可复用文件，代码改变后自动使用新的 URL。未带版本号的文件、首页、数据接口、CSV 及错误响应仍为 `no-store`；缓存不保存家庭测量记录。更改 Caddyfile 后运行 `docker compose -p pressure-diary exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile` 和 `docker compose -p pressure-diary exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`。
-
-Cloudflare 的灰云“仅 DNS”仍直接连接源站；橙云代理才使用其网络。若选择试用代理，应确认接受由 Cloudflare 终止 HTTPS 并处理网页/API 请求，核对源站证书后使用 Full (strict)，保持 A 记录内容为源站 IP。不使用 Flexible、不跳过证书验证、不将 API/CSV 设为“缓存全部”。代理的效果需要在访问者所在网络实际测量，免费全球网络不等同于中国境内 CDN，也不能保证三家运营商使用同一个最快节点。依据：[代理状态](https://developers.cloudflare.com/dns/proxy-status/)、[严格 HTTPS](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/full-strict/)、[默认缓存](https://developers.cloudflare.com/cache/concepts/default-cache-behavior/)、[网络路由](https://developers.cloudflare.com/support/troubleshooting/general-troubleshooting/geographic-traffic-routing/)。
-
-`probe-network.py` 用系统 curl 测量完整 HTTPS `/healthz` 请求，比较 DNS 默认路线、指定源站 IP 及可选边缘 IP。它保持真实域名与 TLS 校验，只请求公开健康状态，不携带密钥或血压记录，不修改 DNS/hosts/代理设置。每条路线至少三次新连接，以成功率、中位首字节时间和最慢请求对比，非 200 或健康响应不符的候选不参与优选。脚本关闭 curl 的显式代理；如果有系统级透明隧道，需自行确保测试确实使用本地运营商出口。
-
-```sh
-# 在南京实际使用的电信/联通/移动网络分别运行，建议增加晚高峰对比
-python probe-network.py --url https://bp.282412.xyz --origin-ip <源站IP> --samples 5 --label 南京电信晚高峰 --output ../build/network-telecom.json
-# 开启代理并获得实际可用候选后，添加 --candidate-ip <边缘IP> 可重复比较，最多 8 个
-```
-
-单个 IP 的 ping 或一次成功请求不能代表所有用户。脚本只给出当前网络、当前时间和已测试路线的结果，不会把某个边缘 IP 写入全站 DNS；未开启代理时，强制连接 Cloudflare IP 可能被拒绝，拒绝响应不能当成加速成功。新连接结果主要反映首开开销，浏览器复用连接后的耗时可能不同。
-
 ## Docker 部署
 
 配置文件：`Dockerfile` 构建 API，`compose.yaml` 管理容器和持久化卷，`Caddyfile` 配置 HTTPS 反向代理，`.env.example` 是域名配置模板，`.dockerignore` 排除运行数据和本机环境。`requirements.txt` 固定服务端依赖，`requirements-test.txt` 增加 API 测试依赖。
