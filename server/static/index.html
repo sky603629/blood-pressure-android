@@ -1,34 +1,50 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>家人的血压记录</title>
-  <link rel="stylesheet" href="/dashboard.css">
-  <script src="/dashboard.js" defer></script>
-</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#174c43"><title>血压日记 · 家庭健康看板</title><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 40 40%27%3E%3Crect width=%2740%27 height=%2740%27 rx=%2712%27 fill=%27%23174c43%27/%3E%3Cpath d=%27M5 20h7l3-8 6 16 4-8h10%27 fill=%27none%27 stroke=%27%23f5f8ed%27 stroke-width=%272%27/%3E%3C/svg%3E"><link rel="stylesheet" href="/dashboard.css"><script src="/dashboard.js" defer></script></head>
 <body>
-  <main>
-    <header><p class="eyebrow">FAMILY HEALTH</p><h1>家人的血压记录</h1><p class="muted">集中查看手机上传的测量记录</p></header>
-    <section id="login" class="panel">
-      <label for="key">查看密钥</label>
-      <input id="key" type="password" autocomplete="off" placeholder="填写服务器生成的网页查看密钥">
-      <button id="connect" class="primary" type="button">查看记录</button>
-      <p class="muted small">密钥仅在当前页面使用，关闭页面后重新填写。</p>
-    </section>
-    <section id="records-panel" hidden>
-      <div class="panel filters">
-        <div><label for="member">家人</label><select id="member"><option value="">全部家人</option></select></div>
-        <div><label for="start">开始日期</label><input id="start" type="date"></div>
-        <div><label for="end">结束日期</label><input id="end" type="date"></div>
-        <div class="actions"><button id="refresh" class="primary" type="button">查看</button><button id="export" type="button">导出 CSV</button><button id="logout" type="button">退出</button></div>
-      </div>
-      <div class="list-heading"><h2>测量记录</h2><span id="count"></span></div>
-      <div id="records" aria-live="polite"></div>
-      <div class="pager"><button id="previous" type="button">上一页</button><span id="page"></span><button id="next" type="button">下一页</button></div>
-      <p class="muted small">这里显示手机保存时成功上传的记录。离线保存的记录不会自动补传；手机后续的编辑、删除不会改变这里的上传存档。</p>
-    </section>
-    <p id="message" role="status"></p>
-  </main>
-</body>
-</html>
+<svg class="svg-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+<symbol id="i-wave" viewBox="0 0 24 24"><path d="M2 12h4l3-7 5 14 3-7h5"/></symbol>
+<symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+<symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4m10-4v4M3 11h18m-13 5h2m4 0h2"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 8a8 8 0 0 0-14-2L3 9m0-6v6h6m-5 7a8 8 0 0 0 14 2l3-3m0 6v-6h-6"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><path d="m9 3-.6 2.5-2.2 1.3L3.8 6l-2 3.5 1.8 1.8v2.6l-1.8 1.8 2 3.5 2.4-.8 2.2 1.3L9 22h4l.6-2.3 2.2-1.3 2.4.8 2-3.5-1.8-1.8v-2.6l1.8-1.8-2-3.5-2.4.8-2.2-1.3L13 3Z"/><circle cx="11" cy="12.5" r="3"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3m2-17a3 3 0 0 1 0 6m2 11v-3a6 6 0 0 0-3-5"/></symbol>
+<symbol id="i-heart" viewBox="0 0 24 24"><path d="m12 21-8-8a5.5 5.5 0 0 1 8-8 5.5 5.5 0 0 1 8 8Z"/></symbol>
+<symbol id="i-exit" viewBox="0 0 24 24"><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5m5-12 4 4-4 4m-6-4h10"/></symbol>
+<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></symbol>
+<symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 14A9 9 0 0 1 10 3a9 9 0 1 0 11 11Z"/></symbol>
+</defs></svg>
+<section id="login" class="login-screen">
+<header class="login-header"><a class="brand" href="/"><span class="brand-mark"><svg class="icon"><use href="#i-wave"/></svg></span><span>血压日记<small>FAMILY WELLNESS</small></span></a><span class="header-note">把家人的健康，放在心上。</span></header>
+<div class="login-layout"><div class="login-intro"><span class="overline">每一份关心，都有迹可循</span><h1>看见变化，<br>让关心更有<span>方向。</span></h1><p>从一条测量，到一段趋势。<br>家人的血压记录，在这里清晰呈现。</p>
+<div class="login-art" aria-hidden="true"><div class="art-caption">● 日常记录 · 长期陪伴</div><svg viewBox="0 0 620 180" class="art-curve"><path class="art-grid" d="M0 40H620M0 90H620M0 140H620"/><path class="art-area" d="M0 96C40 96 42 58 80 58S120 124 160 124 200 70 240 70 280 105 320 105 360 42 400 42 440 86 480 86 530 56 560 56 600 74 620 74V180H0Z"/><path class="art-line" d="M0 96C40 96 42 58 80 58S120 124 160 124 200 70 240 70 280 105 320 105 360 42 400 42 440 86 480 86 530 56 560 56 600 74 620 74"/><circle cx="400" cy="42" r="7"/></svg><div class="art-periods"><span>上午</span><span>下午</span><span>晚上</span></div></div></div>
+<form id="login-form" class="login-card"><div class="login-lock"><svg class="icon"><use href="#i-lock"/></svg></div><span class="overline">YOUR FAMILY, IN FOCUS</span><h2>打开家庭健康看板</h2><p>使用查看密钥，查看家人的测量记录。</p><label for="key">网页查看密钥</label><input id="key" type="password" autocomplete="off" required placeholder="请输入查看密钥"><button id="connect" class="button primary login-button" type="submit">进入看板 <svg class="icon"><use href="#i-arrow"/></svg></button><div class="login-private"><svg class="icon"><use href="#i-lock"/></svg><span>密钥仅在当前页面使用<br>关闭页面后，需重新填写</span></div></form></div><footer class="login-footer">一份日记，一份安心。<span>家庭血压记录与趋势</span></footer></section>
+<div id="records-panel" class="dashboard-shell" hidden>
+<aside class="sidebar"><a class="brand" href="/"><span class="brand-mark"><svg class="icon"><use href="#i-wave"/></svg></span><span>血压日记<small>FAMILY WELLNESS</small></span></a><a class="nav-item active" href="#overview"><svg class="icon"><use href="#i-grid"/></svg>健康概览<span class="nav-dot"></span></a><a class="nav-item" href="#history"><svg class="icon"><use href="#i-calendar"/></svg>测量档案</a><div class="sidebar-label">我的家人 <span id="member-total">0</span></div><div id="member-list" class="member-list"></div><div class="sidebar-bottom"><div class="family-note"><svg class="icon"><use href="#i-heart"/></svg><strong>关心，藏在每一天。</strong><p>让每一次测量<br>成为看见变化的起点。</p></div><button id="logout" class="logout-button" type="button"><svg class="icon"><use href="#i-exit"/></svg>退出看板</button></div></aside>
+<main class="main-content" id="overview">
+<header class="dashboard-header"><div><p class="overline">FAMILY HEALTH OVERVIEW</p><h1 id="page-title">家人的健康概览</h1><p id="page-subtitle" class="subtitle">每一次记录，都让变化更清楚。</p></div><div class="header-actions"><span id="today" class="today"></span><button id="reload" class="button icon-button" type="button" aria-label="刷新全部数据"><svg class="icon"><use href="#i-refresh"/></svg></button><button id="settings" class="button icon-button" type="button" aria-label="显示设置" title="显示设置"><svg class="icon"><use href="#i-settings"/></svg></button><button id="export" class="button primary" type="button"><svg class="icon"><use href="#i-download"/></svg>导出报告</button></div></header>
+<section class="filter-bar" aria-label="筛选测量记录"><div class="range-switch" aria-label="快捷日期范围"><button type="button" data-range="7">近 7 天</button><button type="button" data-range="30" class="selected" aria-pressed="true">近 30 天</button><button type="button" data-range="90">近 90 天</button><button type="button" data-range="all">全部</button></div><div class="date-fields"><svg class="icon"><use href="#i-calendar"/></svg><label class="sr-only" for="start">开始日期</label><input id="start" type="date"><span>—</span><label class="sr-only" for="end">结束日期</label><input id="end" type="date"><button id="refresh" class="button apply-button" type="button">查看</button></div><label class="sr-only" for="member">选择家人</label><select id="member" aria-label="选择家人"><option value="">全部家人</option></select></section>
+<section class="summary-grid" aria-label="筛选范围的数据摘要">
+<article class="latest-card"><div class="card-label"><span class="live-dot"></span>最近一次测量<span id="latest-member" class="latest-member"></span></div><div id="latest-pressure" class="latest-pressure">— <span>/</span> — <small>mmHg</small></div><div class="latest-footer"><div id="latest-time">暂无记录</div><span id="latest-pulse">脉搏 —</span></div><svg class="latest-decoration" viewBox="0 0 180 60" aria-hidden="true"><path d="M0 36h40l12-18 18 35 20-44 19 35 12-8h59"/></svg></article>
+<article class="stat-card coral"><div class="stat-heading"><span id="stat1-label">平均高压</span><svg class="icon"><use href="#i-wave"/></svg></div><div class="stat-number"><strong id="stat1-value">—</strong><span id="stat1-unit">mmHg</span></div><p id="stat1-foot">等待测量记录</p><svg class="mini-trend" id="spark1" viewBox="0 0 200 35" aria-hidden="true"></svg></article>
+<article class="stat-card blue"><div class="stat-heading"><span id="stat2-label">平均低压</span><svg class="icon"><use href="#i-wave"/></svg></div><div class="stat-number"><strong id="stat2-value">—</strong><span id="stat2-unit">mmHg</span></div><p id="stat2-foot">等待测量记录</p><svg class="mini-trend" id="spark2" viewBox="0 0 200 35" aria-hidden="true"></svg></article>
+<article class="stat-card gold"><div class="stat-heading"><span id="stat3-label">平均脉搏</span><svg class="icon"><use href="#i-heart"/></svg></div><div class="stat-number"><strong id="stat3-value">—</strong><span id="stat3-unit">次/分</span></div><p id="stat3-foot">等待测量记录</p><svg class="mini-trend" id="spark3" viewBox="0 0 200 35" aria-hidden="true"></svg></article>
+</section>
+<div class="visual-grid"><section class="panel trend-panel"><div class="panel-heading"><div><span class="overline">THE BIG PICTURE</span><h2>看见血压的变化</h2><p id="trend-caption">按天呈现每位家人的测量均值</p></div><div class="chart-settings"><label class="sr-only" for="chart-metric">趋势指标</label><select id="chart-metric"><option value="pressure">血压</option><option value="pulse">脉搏</option></select><div class="mode-switch"><button id="daily-mode" type="button" class="selected" aria-pressed="true">每日均值</button><button id="reading-mode" type="button" aria-pressed="false">逐次测量</button></div></div></div><div id="chart-legend" class="chart-legend"></div><div class="chart-wrap"><div id="chart-empty" class="chart-empty" hidden><svg class="icon"><use href="#i-wave"/></svg><h3>这段时间还没有测量记录</h3><p>试试切换日期范围，或在手机中保存并同步一条记录。</p></div><svg id="chart-yaxis" class="chart-yaxis" viewBox="0 0 46 250" aria-hidden="true"></svg><div id="chart-scroll" class="chart-scroll" tabindex="0" aria-label="测量趋势，可左右滚动并使用方向键查看数据"><svg id="chart" class="chart" role="img" aria-label="测量趋势图"></svg></div></div><div class="chart-inspector"><div id="chart-detail" class="chart-detail"><span class="muted">点选曲线，查看当天的读数</span></div><div class="point-navigation"><button id="point-previous" type="button" aria-label="查看前一个数据点">←</button><button id="point-next" type="button" aria-label="查看后一个数据点">→</button></div></div><p id="chart-footnote" class="chart-footnote">每日均值按家人分别计算；日期间隔按实际时间呈现。</p></section>
+<aside class="panel period-panel"><div class="panel-heading"><div><span class="overline">A DAY IN YOUR LIFE</span><h2>一天中的测量</h2><p id="period-caption">同一时段，更方便对照</p></div><svg class="icon heading-icon"><use href="#i-sun"/></svg></div><div id="periods"></div><div class="period-summary"><strong id="coverage-count">0</strong><span>个有记录的日子</span><span id="measurement-count">0 次测量</span></div><p class="period-footnote">上午 05–11 时 · 下午 12–17 时<br>晚上 18–23 时；凌晨记录单独列出。</p></aside></div>
+<section class="panel history-panel" id="history"><div class="panel-heading"><div><span class="overline">EVERY READING MATTERS</span><h2>每一次测量，都清清楚楚</h2><p id="list-caption">按测量时间从近到远排列</p></div><span id="count" class="count-badge">共 0 条</span></div><div class="table-wrap"><table class="records-table"><thead><tr><th scope="col">测量时间</th><th scope="col">家人</th><th scope="col">高压 <small>mmHg</small></th><th scope="col">低压 <small>mmHg</small></th><th scope="col">脉搏 <small>次/分</small></th><th scope="col">来源与备注</th><th scope="col"><span class="sr-only">详细记录</span></th></tr></thead><tbody id="records"></tbody></table><div id="records-empty" class="records-empty" hidden>当前筛选范围没有记录，试试选择“全部”。</div></div><div class="pager"><span id="page">0 条</span><div><button id="previous" class="button" type="button">← 上一页</button><button id="next" class="button" type="button">下一页 →</button></div></div></section>
+<footer class="dashboard-footer"><span><svg class="icon"><use href="#i-lock"/></svg>家人的记录，妥善留存。</span><span id="updated-at">—</span><p>网页随手机同步更新；请在手机端更正或删除记录。这里呈现记录与趋势，不作诊断。</p></footer>
+</main></div>
+<div id="message" class="message" role="status" aria-live="polite" hidden></div>
+<dialog id="record-dialog" class="record-dialog"><div class="dialog-heading"><span class="overline">MEASUREMENT DETAILS</span><button id="close-dialog" type="button" aria-label="关闭记录详情">×</button></div><div id="record-details"></div></dialog>
+<dialog id="settings-dialog" class="record-dialog settings-dialog" aria-labelledby="settings-title">
+<div class="dialog-heading"><span class="overline">MAKE IT YOURS</span><button id="close-settings" type="button" aria-label="关闭显示设置">×</button></div>
+<h2 id="settings-title">显示设置</h2><p class="settings-description">选择你想在看板中看到的家人。</p>
+<form id="settings-form"><fieldset class="settings-fieldset"><legend>显示哪些家人</legend><div id="settings-members" class="settings-members"></div></fieldset>
+<label class="settings-member settings-all"><input id="settings-show-all" type="checkbox"><span class="settings-member-copy"><strong>显示“全部家人”入口</strong><small>选择两位及以上时可显示，只汇总勾选家人的记录。</small></span></label>
+<p class="settings-hint">只选一位时，“全部家人”会自动隐藏。设置保存在当前浏览器，不影响手机上传和已有记录。</p><p id="settings-error" class="settings-error" role="alert"></p>
+<div class="settings-actions"><button id="settings-reset" class="button" type="button">恢复全部</button><button id="save-settings" class="button primary" type="submit">保存设置</button></div></form></dialog>
+</body></html>

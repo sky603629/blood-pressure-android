@@ -279,8 +279,13 @@ class Store:
     @staticmethod
     def selection(device_id=None, from_ms=None, to_ms=None):
         where, params = [], []
-        for condition, value in (("m.device_id=?", device_id),
-                                 ("m.measured_at>=?", from_ms), ("m.measured_at<?", to_ms)):
+        if isinstance(device_id, tuple):
+            where.append("m.device_id IN ("+",".join("?" for _ in device_id)+")" if device_id else "0=1")
+            params.extend(device_id)
+        elif device_id is not None:
+            where.append("m.device_id=?")
+            params.append(device_id)
+        for condition, value in (("m.measured_at>=?", from_ms), ("m.measured_at<?", to_ms)):
             if value is not None:
                 where.append(condition)
                 params.append(value)
@@ -312,6 +317,32 @@ class Store:
                 SELECT m.*,d.name FROM measurements m JOIN devices d ON d.id=m.device_id
             """ + where + " ORDER BY m.measured_at DESC,m.device_id,m.record_id", params):
                 yield self.public_record(row)
+
+    def overview(self, device_id=None, from_ms=None, to_ms=None):
+        """Full-filter statistics; daily means stay separated by device and phone-local date."""
+        where, params = self.selection(device_id, from_ms, to_ms)
+        local_day = "date((m.measured_at+m.utc_offset_minutes*60000)/1000.0,'unixepoch')"
+        hour = "CAST(strftime('%H',(m.measured_at+m.utc_offset_minutes*60000)/1000.0,'unixepoch') AS INTEGER)"
+        period = f"CASE WHEN {hour}<5 THEN 'night' WHEN {hour}<12 THEN 'morning' WHEN {hour}<18 THEN 'afternoon' ELSE 'evening' END"
+        averages = "COUNT(*) AS count,AVG(m.systolic) AS systolic,AVG(m.diastolic) AS diastolic,AVG(m.pulse) AS pulse"
+        with self.connection() as db:
+            # Explicit read transaction keeps the summary, latest row and curve in one snapshot.
+            db.execute("BEGIN")
+            summary = dict(db.execute(f"SELECT {averages},COUNT(DISTINCT {local_day}) AS days,"
+                "COUNT(DISTINCT m.device_id) AS members,MIN(m.systolic) AS minSystolic,"
+                "MAX(m.systolic) AS maxSystolic,MIN(m.diastolic) AS minDiastolic,"
+                "MAX(m.diastolic) AS maxDiastolic,MIN(m.pulse) AS minPulse,MAX(m.pulse) AS maxPulse "
+                "FROM measurements m"+where,params).fetchone())
+            latest = db.execute("SELECT m.*,d.name FROM measurements m JOIN devices d ON d.id=m.device_id"+
+                where+" ORDER BY m.measured_at DESC,m.device_id,m.record_id LIMIT 1",params).fetchone()
+            daily = [dict(row) for row in db.execute(f"SELECT m.device_id AS deviceId,d.name AS memberName,"
+                f"{local_day} AS date,{averages},MIN(m.measured_at) AS firstAt,MAX(m.measured_at) AS lastAt "
+                "FROM measurements m JOIN devices d ON d.id=m.device_id"+where+
+                f" GROUP BY m.device_id,{local_day} ORDER BY date,m.device_id",params)]
+            periods = [dict(row) for row in db.execute(f"SELECT m.device_id AS deviceId,{period} AS period,{averages} "
+                "FROM measurements m"+where+f" GROUP BY m.device_id,{period}",params)]
+        return {"summary":summary,"latest":self.public_record(latest) if latest else None,
+                "daily":daily,"periods":periods}
 
     def backup(self, destination):
         target = Path(destination)

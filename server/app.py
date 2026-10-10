@@ -193,10 +193,15 @@ def create_app(database_path=None):
     def members():
         return {"devices": store.devices()}
 
-    def filters(device_id: UUID | None = None, from_ms: int | None = None, to_ms: int | None = None):
+    def filters(device_id: UUID | None = None, from_ms: int | None = None, to_ms: int | None = None,
+                device_ids: Annotated[list[UUID] | None, Query(max_length=100)] = None):
         if from_ms is not None and to_ms is not None and from_ms >= to_ms:
             raise HTTPException(422, "Date range must have a positive duration")
-        return str(device_id) if device_id is not None else None, from_ms, to_ms
+        if device_id is not None and device_ids is not None:
+            raise HTTPException(422, "Choose a single member or a member group")
+        selected = tuple(dict.fromkeys(str(value) for value in device_ids)) if device_ids is not None else (
+            str(device_id) if device_id is not None else None)
+        return selected, from_ms, to_ms
 
     @api.get("/api/v1/measurements", dependencies=[Depends(admin_auth)])
     def records(selection: Annotated[tuple, Depends(filters)],
@@ -226,6 +231,10 @@ def create_app(database_path=None):
                 yield buffer.getvalue()
         return StreamingResponse(rows(), media_type="text/csv; charset=utf-8",
                                  headers={"Content-Disposition": 'attachment; filename="blood-pressure.csv"'})
+
+    @api.get("/api/v1/overview", dependencies=[Depends(admin_auth)])
+    def overview(selection: Annotated[tuple, Depends(filters)]):
+        return store.overview(*selection)
 
     @api.get("/")
     def dashboard():
