@@ -5,13 +5,14 @@ from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID
 import csv
+import hashlib
 import io
 import json
 import os
 
 from fastapi import Depends, FastAPI, HTTPException, Path as ApiPath, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, ValidationError, model_validator
 from starlette.concurrency import run_in_threadpool
@@ -84,6 +85,11 @@ async def json_body(request, limit):
 
 def create_app(database_path=None):
     store = Store(database_path or os.environ.get("BP_DATABASE", "data/blood-pressure.sqlite3"))
+    asset_versions = {name: hashlib.sha256((STATIC / name).read_bytes()).hexdigest()[:16]
+                      for name in ("dashboard.js", "dashboard.css")}
+    index_html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for name, version in asset_versions.items():
+        index_html = index_html.replace(f'"/{name}"', f'"/{name}?v={version}"')
 
     @asynccontextmanager
     async def lifespan(app):
@@ -116,8 +122,10 @@ def create_app(database_path=None):
     @api.middleware("http")
     async def response_headers(request, call_next):
         response = await call_next(request)
+        # Only content-addressed public assets may opt into caching. Private responses never do.
+        response.headers.setdefault("Cache-Control", "no-store")
         response.headers.update({
-            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+            "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY",
             "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; "
                 "connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; "
@@ -238,15 +246,21 @@ def create_app(database_path=None):
 
     @api.get("/")
     def dashboard():
-        return FileResponse(STATIC / "index.html", media_type="text/html")
+        return HTMLResponse(index_html)
+
+    def asset(name, media_type, version):
+        if version is not None and version != asset_versions[name]:
+            raise HTTPException(404, "Asset version unavailable; reload the dashboard")
+        headers = {"Cache-Control": "public, max-age=31536000, immutable"} if version is not None else {}
+        return FileResponse(STATIC / name, media_type=media_type, headers=headers)
 
     @api.get("/dashboard.js")
-    def script():
-        return FileResponse(STATIC / "dashboard.js", media_type="text/javascript")
+    def script(v: str | None = None):
+        return asset("dashboard.js", "text/javascript", v)
 
     @api.get("/dashboard.css")
-    def stylesheet():
-        return FileResponse(STATIC / "dashboard.css", media_type="text/css")
+    def stylesheet(v: str | None = None):
+        return asset("dashboard.css", "text/css", v)
 
     return api
 
