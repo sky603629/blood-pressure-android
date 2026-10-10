@@ -2,78 +2,150 @@ package com.pressurediary.app;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.util.AttributeSet;
+import android.view.GestureDetector;
 import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
+import android.view.ViewConfiguration;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
 final class TrendChartView extends View {
-    private static final int INK = 0xFF69766F;
-    private static final int GRID = 0xFFE7ECE9;
-    private static final int SYSTOLIC = 0xFFD66B51;
-    private static final int DIASTOLIC = 0xFF4886B8;
-    private static final int PULSE = 0xFFB1811E;
+    private static final int INK = 0xFF636366;
+    private static final int GRID = 0xFFE5E5EA;
+    private static final int ACCENT = 0xFF0066CC;
+    private static final int SYSTOLIC = 0xFFBF5543;
+    private static final int DIASTOLIC = 0xFF326CA5;
+    private static final int PULSE = 0xFF966820;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final SimpleDateFormat dayFormat = new SimpleDateFormat("M月d日", Locale.CHINA);
-    private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.CHINA);
-    private List<Measurement> visibleData = Collections.emptyList();
-    private Measurement selectedMeasurement;
-    private OnMeasurementSelectedListener selectionListener;
-    private int days = 7;
+    private final Path seriesPath = new Path();
+    private final ChartViewport viewport = new ChartViewport();
+    private final SimpleDateFormat dateFormat = new SimpleDateFormat("M月d日", Locale.CHINA);
+    private final SimpleDateFormat clockFormat = new SimpleDateFormat("h:mm", Locale.CHINA);
+    private final float density;
+    private final float fontScale;
+    private final int touchSlop;
+    private final DashPathEffect dashedLine;
+    private final GestureDetector gestures;
+    private final ScaleGestureDetector scaleGestures;
+    private final String[] tickDates = new String[3];
+    private final String[] tickTimes = new String[3];
+    private final int[] tickIndices = new int[3];
+    private List<Measurement> data = Collections.emptyList();
+    private int selectedIndex = -1;
+    private int days;
+    private Long selectedDay;
     private boolean showPulse;
-    private long rangeStart;
-    private long rangeEnd;
-    private boolean singleDay;
-    private float plotLeft;
-    private float plotRight;
-    private float plotTop;
-    private float plotBottom;
-    private int plotMinValue;
-    private int plotMaxValue;
+    private OnMeasurementSelectedListener selectionListener;
+    private OnViewportChangedListener viewportListener;
+    private float left, right, top, bottom, overviewTop, overviewBottom;
+    private int minValue, maxValue, valueStep;
+    private float downX, downY, lastX;
+    private boolean dragging, scrubbing, hadScale, verticalRejected, touchingOverview;
 
     interface OnMeasurementSelectedListener {
         void onSelected(Measurement measurement, int index, int count);
     }
 
-    TrendChartView(Context context) {
-        super(context);
-        setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+    interface OnViewportChangedListener {
+        void onChanged(int first, int last, int count, boolean canZoomIn, boolean canZoomOut);
     }
+
+    TrendChartView(Context context) { this(context, null); }
 
     TrendChartView(Context context, AttributeSet attrs) {
         super(context, attrs);
+        density = getResources().getDisplayMetrics().density;
+        fontScale = getResources().getDisplayMetrics().scaledDensity;
+        touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+        dashedLine = new DashPathEffect(new float[]{5 * density, 3 * density}, 0);
+        setFocusable(true);
+        gestures = new GestureDetector(context, new GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onDown(MotionEvent event) { return true; }
+            @Override public boolean onSingleTapUp(MotionEvent event) {
+                if (!dragging && !scrubbing && !hadScale && !verticalRejected) {
+                    if (touchingOverview) centerOverview(event.getX());
+                    else selectAt(event.getX());
+                    performClick();
+                }
+                return true;
+            }
+            @Override public boolean onDoubleTap(MotionEvent event) {
+                zoom(2, plotFraction(event.getX()));
+                return true;
+            }
+            @Override public void onLongPress(MotionEvent event) {
+                if (!hadScale && !dragging && !verticalRejected && !touchingOverview) {
+                    scrubbing = true;
+                    selectAt(event.getX());
+                }
+            }
+        });
+        scaleGestures = new ScaleGestureDetector(context,
+                new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                    @Override public boolean onScaleBegin(ScaleGestureDetector detector) {
+                        hadScale = true;
+                        return data.size() > 1;
+                    }
+                    @Override public boolean onScale(ScaleGestureDetector detector) {
+                        zoom(detector.getScaleFactor(), plotFraction(detector.getFocusX()));
+                        return true;
+                    }
+                });
+        scaleGestures.setQuickScaleEnabled(false);
     }
 
-    void setData(List<Measurement> data, int days, boolean showPulse) {
-        setData(data, days, showPulse, null, null);
-    }
-
-    void setData(List<Measurement> data, int days, boolean showPulse, Long selectedStart, Long selectedEnd) {
-        this.days = days;
-        this.showPulse = showPulse;
-        singleDay = selectedStart != null && selectedEnd != null;
-        rangeStart = singleDay ? selectedStart : System.currentTimeMillis() - days * 24L * 60L * 60L * 1000L;
-        rangeEnd = singleDay ? selectedEnd : System.currentTimeMillis();
+    void setData(List<Measurement> measurements, int days, boolean pulse, Long start, Long end) {
+        boolean sameRange = this.days == days && (selectedDay == null ? start == null : selectedDay.equals(start));
+        Calendar range = Calendar.getInstance();
+        range.set(Calendar.HOUR_OF_DAY, 0);
+        range.set(Calendar.MINUTE, 0);
+        range.set(Calendar.SECOND, 0);
+        range.set(Calendar.MILLISECOND, 0);
+        range.add(Calendar.DAY_OF_MONTH, 1);
+        long rangeEnd = start != null && end != null ? end : range.getTimeInMillis();
+        range.add(Calendar.DAY_OF_MONTH, -Math.max(1, days));
+        long rangeStart = start != null && end != null ? start : days == 0 ? Long.MIN_VALUE : range.getTimeInMillis();
         List<Measurement> filtered = new ArrayList<>();
-        for (int i = data.size() - 1; i >= 0; i--) {
-            Measurement item = data.get(i);
-            if (item.measuredAt >= rangeStart && item.measuredAt < rangeEnd) filtered.add(item);
+        for (Measurement item : measurements) {
+            if (item.measuredAt >= rangeStart && (days == 0 && start == null || item.measuredAt < rangeEnd)) {
+                filtered.add(item);
+            }
         }
-        visibleData = filtered;
-        selectedMeasurement = visibleData.isEmpty() ? null : visibleData.get(visibleData.size() - 1);
-        String rangeDescription = singleDay ? "所选日期" : "最近" + days + "天";
-        setContentDescription((showPulse ? "脉搏" : "收缩压和舒张压") + "趋势图，" + rangeDescription +
-                "，共" + visibleData.size() + "条测量记录");
-        invalidate();
+        Collections.sort(filtered, (first, second) -> {
+            int byTime = Long.compare(first.measuredAt, second.measuredAt);
+            return byTime != 0 ? byTime : Long.compare(first.id, second.id);
+        });
+        boolean preserveWindow = sameRange && filtered.size() == data.size();
+        if (preserveWindow) {
+            for (int i = 0; i < filtered.size(); i++) {
+                if (filtered.get(i).id != data.get(i).id || filtered.get(i).measuredAt != data.get(i).measuredAt) {
+                    preserveWindow = false;
+                    break;
+                }
+            }
+        }
+        this.days = days;
+        selectedDay = start;
+        showPulse = pulse;
+        data = filtered;
+        if (!preserveWindow) {
+            viewport.reset(data.size(), 12);
+            selectedIndex = data.isEmpty() ? -1 : data.size() - 1;
+        }
+        calculateValueRange();
+        refreshViewport();
         notifySelection();
     }
 
@@ -82,182 +154,264 @@ final class TrendChartView extends View {
         notifySelection();
     }
 
-    private void notifySelection() {
-        if (selectionListener == null) return;
-        int index = selectedMeasurement == null ? -1 : visibleData.indexOf(selectedMeasurement);
-        selectionListener.onSelected(selectedMeasurement, index, visibleData.size());
+    void setOnViewportChangedListener(OnViewportChangedListener listener) {
+        viewportListener = listener;
+        refreshViewport();
     }
 
-    @Override
-    protected void onDraw(Canvas canvas) {
-        super.onDraw(canvas);
-        float density = getResources().getDisplayMetrics().density;
-        float fontScale = getResources().getDisplayMetrics().scaledDensity;
-        float left = 42 * density;
-        float right = getWidth() - 10 * density;
-        float top = 14 * density;
-        float bottom = getHeight() - 31 * density;
-        if (right <= left || bottom <= top) return;
+    void showAll() { viewport.showAll(); refreshViewport(); }
+    void zoomIn() { zoom(1.6, selectionFraction()); }
+    void zoomOut() { zoom(1 / 1.6, selectionFraction()); }
 
-        if (visibleData.isEmpty()) {
+    private double selectionFraction() {
+        return selectedIndex < 0 ? 0.5 : Math.max(0, Math.min(1,
+                (selectedIndex - viewport.start()) / viewport.span()));
+    }
+
+    void selectRelative(int offset) {
+        if (data.isEmpty()) return;
+        select(Math.max(0, Math.min(data.size() - 1, selectedIndex + offset)));
+    }
+
+    private void select(int index) {
+        selectedIndex = index;
+        viewport.ensureVisible(index);
+        refreshViewport();
+        notifySelection();
+    }
+
+    private void zoom(double factor, double anchor) {
+        viewport.zoom(factor, anchor);
+        refreshViewport();
+    }
+
+    private void refreshViewport() {
+        int first = viewport.first();
+        int last = viewport.last();
+        if (!data.isEmpty() && (selectedIndex < first || selectedIndex > last)) {
+            selectedIndex = (first + last) / 2;
+            notifySelection();
+        }
+        for (int slot = 0; slot < 3; slot++) {
+            int index = first < 0 ? -1 : first + (last - first) * slot / 2;
+            tickIndices[slot] = index;
+            if (index >= 0) {
+                long timestamp = data.get(index).measuredAt;
+                tickDates[slot] = dateFormat.format(new Date(timestamp));
+                Calendar clock = Calendar.getInstance();
+                clock.setTimeInMillis(timestamp);
+                int hour = clock.get(Calendar.HOUR_OF_DAY);
+                String period = hour < 5 ? "凌晨" : hour < 12 ? "上午" : hour < 18 ? "下午" : "晚上";
+                tickTimes[slot] = period + clockFormat.format(new Date(timestamp));
+            }
+        }
+        String rangeText = selectedDay != null ? "所选日期" : days == 0 ? "全部记录" : "最近" + days + "日";
+        setContentDescription((showPulse ? "脉搏" : "高压和低压") + "趋势图，" + rangeText + "，共" + data.size() +
+                "条记录，可左右滑动、双指缩放和点选；也可使用上一条、下一条按钮");
+        if (viewportListener != null) {
+            viewportListener.onChanged(first, last, data.size(), viewport.canZoomIn(), viewport.canZoomOut());
+        }
+        invalidate();
+    }
+
+    private void notifySelection() {
+        if (selectionListener != null) {
+            selectionListener.onSelected(selectedIndex < 0 ? null : data.get(selectedIndex), selectedIndex, data.size());
+        }
+    }
+
+    private void calculateValueRange() {
+        if (data.isEmpty()) { minValue = 40; maxValue = 160; valueStep = 20; return; }
+        int smallest = Integer.MAX_VALUE;
+        int largest = Integer.MIN_VALUE;
+        for (Measurement item : data) {
+            smallest = Math.min(smallest, showPulse ? item.pulse : item.diastolic);
+            largest = Math.max(largest, showPulse ? item.pulse : item.systolic);
+        }
+        valueStep = largest - smallest > 140 ? 40 : showPulse ? 10 : 20;
+        minValue = Math.max(0, smallest / valueStep * valueStep - valueStep);
+        maxValue = (largest + valueStep - 1) / valueStep * valueStep + valueStep;
+        if (maxValue <= minValue) maxValue = minValue + valueStep * 2;
+    }
+
+    @Override protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        paint.setTextSize(12 * fontScale);
+        left = Math.max(36 * density, paint.measureText(String.valueOf(maxValue)) + 10 * density);
+        right = getWidth() - 8 * density;
+        top = 24 * density;
+        bottom = getHeight() - (58 * fontScale + 30 * density);
+        overviewTop = getHeight() - 24 * density;
+        overviewBottom = getHeight() - 4 * density;
+        if (right <= left || bottom <= top) return;
+        paint.setPathEffect(null);
+        paint.setStyle(Paint.Style.FILL);
+        if (data.isEmpty()) {
             paint.setColor(INK);
-            paint.setTextSize(14 * fontScale);
             paint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText(singleDay ? "这一天暂无测量记录" : "暂无这段时间的记录",
-                    getWidth() / 2f, getHeight() / 2f, paint);
+            paint.setTextSize(16 * fontScale);
+            canvas.drawText("这段时间还没有测量记录", getWidth() / 2f, getHeight() / 2f, paint);
             return;
         }
-
-        int minValue = Integer.MAX_VALUE;
-        int maxValue = Integer.MIN_VALUE;
-        for (Measurement item : visibleData) {
-            minValue = Math.min(minValue, showPulse ? item.pulse : item.diastolic);
-            maxValue = Math.max(maxValue, showPulse ? item.pulse : item.systolic);
-        }
-        int step = showPulse ? 10 : 20;
-        int min = Math.max(showPulse ? 30 : 40, (minValue / step) * step - step);
-        int max = ((maxValue + step - 1) / step) * step + step;
-        if (max <= min) max = min + step * 2;
-        plotLeft = left;
-        plotRight = right;
-        plotTop = top;
-        plotBottom = bottom;
-        plotMinValue = min;
-        plotMaxValue = max;
-
-        paint.setStrokeWidth(1 * density);
-        paint.setColor(GRID);
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setTextSize(13 * fontScale);
-        paint.setTextAlign(Paint.Align.RIGHT);
-        for (int i = 0; i <= 3; i++) {
-            float y = top + (bottom - top) * i / 3f;
-            canvas.drawLine(left, y, right, y, paint);
-            int label = max - (max - min) * i / 3;
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(INK);
-            canvas.drawText(String.valueOf(label), left - 8 * density, y + 4 * density, paint);
-            paint.setStyle(Paint.Style.STROKE);
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setColor(INK);
+        paint.setTextSize(11 * fontScale);
+        canvas.drawText(showPulse ? "次/分" : "mmHg", 0, 12 * fontScale, paint);
+        for (int value = minValue; value <= maxValue; value += valueStep) {
+            float y = yFor(value, top, bottom);
             paint.setColor(GRID);
+            paint.setStrokeWidth(density);
+            canvas.drawLine(left, y, right, y, paint);
+            paint.setColor(INK);
+            paint.setTextSize(12 * fontScale);
+            paint.setTextAlign(Paint.Align.RIGHT);
+            canvas.drawText(String.valueOf(value), left - 8 * density, y + 4 * fontScale, paint);
         }
+        canvas.save();
+        canvas.clipRect(left, top - 9 * density, right, bottom + 9 * density);
+        if (selectedIndex >= viewport.first() && selectedIndex <= viewport.last()) {
+            paint.setColor(0x18007AFF);
+            float selectedX = xFor(selectedIndex);
+            canvas.drawRect(selectedX - 10 * density, top, selectedX + 10 * density, bottom, paint);
+        }
+        drawSeries(canvas, showPulse ? 2 : 0, false);
+        if (!showPulse) drawSeries(canvas, 1, false);
+        canvas.restore();
 
         paint.setStyle(Paint.Style.FILL);
+        paint.setPathEffect(null);
         paint.setColor(INK);
-        paint.setTextAlign(Paint.Align.CENTER);
-        int intervalCount = singleDay ? 4 : 3;
-        for (int i = 0; i <= intervalCount; i++) {
-            long tick = rangeStart + (rangeEnd - rangeStart) * i / intervalCount;
-            float x = left + (right - left) * i / (float) intervalCount;
-            String tickLabel = singleDay
-                    ? (i == intervalCount ? "24:00" : timeFormat.format(new Date(tick)))
-                    : dayFormat.format(new Date(tick));
-            canvas.drawText(tickLabel, x, getHeight() - 8 * density, paint);
+        paint.setTextSize(11 * fontScale);
+        boolean compactTicks = paint.measureText("下午12:59") * 2.8f > right - left;
+        for (int slot = 0; slot < 3; slot++) {
+            int index = tickIndices[slot];
+            if (index < 0 || compactTicks && slot == 1 || slot > 0 && index == tickIndices[slot - 1]) continue;
+            float x = left + (right - left) * slot / 2f;
+            paint.setTextAlign(slot == 0 ? Paint.Align.LEFT : slot == 2 ? Paint.Align.RIGHT : Paint.Align.CENTER);
+            canvas.drawText(tickDates[slot], x, bottom + 20 * fontScale, paint);
+            canvas.drawText(tickTimes[slot], x, bottom + 36 * fontScale, paint);
         }
-
-        if (selectedMeasurement != null) {
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setColor(0x66818D86);
-            paint.setStrokeWidth(1 * density);
-            float selectedX = xFor(selectedMeasurement, visibleData, left, right);
-            canvas.drawLine(selectedX, top, selectedX, bottom, paint);
-        }
-
-        if (showPulse) {
-            drawSeries(canvas, visibleData, min, max, density, PULSE, 2);
-        } else {
-            drawSeries(canvas, visibleData, min, max, density, SYSTOLIC, 0);
-            drawSeries(canvas, visibleData, min, max, density, DIASTOLIC, 1);
-        }
+        paint.setColor(0xFFF2F2F7);
+        canvas.drawRoundRect(left, overviewTop, right, overviewBottom, 5 * density, 5 * density, paint);
+        drawSeries(canvas, showPulse ? 2 : 0, true);
+        if (!showPulse) drawSeries(canvas, 1, true);
+        float overviewLeft = left + (right - left) * (float) ((viewport.start() + 0.5) / data.size());
+        float overviewRight = left + (right - left) * (float) ((viewport.end() + 0.5) / data.size());
+        paint.setColor(0x22007AFF);
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawRoundRect(overviewLeft, overviewTop, overviewRight, overviewBottom, 4 * density, 4 * density, paint);
+        paint.setColor(ACCENT);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(density);
+        canvas.drawRoundRect(overviewLeft, overviewTop, overviewRight, overviewBottom, 4 * density, 4 * density, paint);
+        paint.setStyle(Paint.Style.FILL);
     }
 
-    private void drawSeries(Canvas canvas, List<Measurement> items, int min, int max,
-                            float density, int color, int field) {
-        Path path = new Path();
-        List<float[]> points = new ArrayList<>();
-        for (int i = 0; i < items.size(); i++) {
-            Measurement item = items.get(i);
-            int value = field == 0 ? item.systolic : field == 1 ? item.diastolic : item.pulse;
-            float x = xFor(item, items, plotLeft, plotRight);
-            float y = yFor(value, min, max);
-            if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
-            points.add(new float[]{x, y});
+    private void drawSeries(Canvas canvas, int field, boolean overview) {
+        int first = overview ? 0 : Math.max(0, (int) Math.floor(viewport.start()) - 1);
+        int last = overview ? data.size() - 1 : Math.min(data.size() - 1, (int) Math.ceil(viewport.end()) + 1);
+        int color = field == 0 ? SYSTOLIC : field == 1 ? DIASTOLIC : PULSE;
+        seriesPath.reset();
+        for (int i = first; i <= last; i++) {
+            float x = overview ? overviewX(i) : xFor(i);
+            float y = yFor(valueFor(data.get(i), field), overview ? overviewTop + 2 * density : top,
+                    overview ? overviewBottom - 2 * density : bottom);
+            if (i == first) seriesPath.moveTo(x, y); else seriesPath.lineTo(x, y);
         }
         paint.setColor(color);
-        paint.setStrokeWidth(2.5f * density);
-        paint.setStrokeCap(Paint.Cap.ROUND);
-        paint.setStrokeJoin(Paint.Join.ROUND);
         paint.setStyle(Paint.Style.STROKE);
-        if (points.size() > 1) canvas.drawPath(path, paint);
-        paint.setStyle(Paint.Style.FILL);
-        for (int i = 0; i < points.size(); i++) {
-            float[] point = points.get(i);
-            if (selectedMeasurement != null && items.get(i).id == selectedMeasurement.id) {
+        paint.setStrokeWidth((overview ? 1 : 2.5f) * density);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setPathEffect(!overview && field == 1 ? dashedLine : null);
+        canvas.drawPath(seriesPath, paint);
+        paint.setPathEffect(null);
+        if (overview) return;
+        for (int i = Math.max(0, viewport.first()); i <= viewport.last(); i++) {
+            float x = xFor(i);
+            float y = yFor(valueFor(data.get(i), field), top, bottom);
+            if (i == selectedIndex) {
+                paint.setColor(0xFFFFFFFF);
+                paint.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(x, y, 8 * density, paint);
                 paint.setColor(color);
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setStrokeWidth(2 * density);
-                canvas.drawCircle(point[0], point[1], 8 * density, paint);
-                paint.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(x, y, 8 * density, paint);
             }
-            canvas.drawCircle(point[0], point[1], 4 * density, paint);
-            paint.setColor(0xFFFFFFFF);
-            canvas.drawCircle(point[0], point[1], 1.8f * density, paint);
+            paint.setStyle(Paint.Style.FILL);
             paint.setColor(color);
+            float radius = i == selectedIndex ? 4 : viewport.span() <= 24 ? 3 : 1.5f;
+            if (field == 1) canvas.drawRect(x - radius * density, y - radius * density,
+                    x + radius * density, y + radius * density, paint);
+            else canvas.drawCircle(x, y, radius * density, paint);
         }
     }
 
-    private float xFor(Measurement item, List<Measurement> items, float left, float right) {
-        if (rangeEnd <= rangeStart) return (left + right) / 2f;
-        float fraction = Math.max(0, Math.min(1,
-                (item.measuredAt - rangeStart) / (float) (rangeEnd - rangeStart)));
-        return left + (right - left) * fraction;
+    private int valueFor(Measurement item, int field) {
+        return field == 0 ? item.systolic : field == 1 ? item.diastolic : item.pulse;
     }
 
-    private float yFor(int value, int min, int max) {
-        return plotBottom - (plotBottom - plotTop) * (value - min) / (float) (max - min);
+    private float xFor(int index) { return left + (right - left) * (float) ((index - viewport.start()) / viewport.span()); }
+    private float overviewX(int index) { return left + (right - left) * (index + 0.5f) / data.size(); }
+    private float yFor(int value, float plotTop, float plotBottom) {
+        return plotBottom - (plotBottom - plotTop) * (value - minValue) / (maxValue - minValue);
+    }
+    private double plotFraction(float x) { return right <= left ? 0.5 : Math.max(0, Math.min(1, (x - left) / (right - left))); }
+
+    private void centerOverview(float x) {
+        if (data.isEmpty()) return;
+        viewport.centerOn(plotFraction(x) * data.size() - 0.5);
+        refreshViewport();
     }
 
-    private Measurement nearestMeasurement(float x, float y) {
-        if (visibleData.isEmpty() || plotRight <= plotLeft || plotMaxValue <= plotMinValue) return null;
-        float bestDistance = Float.MAX_VALUE;
-        Measurement nearest = null;
-        for (Measurement item : visibleData) {
-            float pointX = xFor(item, visibleData, plotLeft, plotRight);
-            int[] values = showPulse
-                    ? new int[]{item.pulse}
-                    : new int[]{item.systolic, item.diastolic};
-            for (int value : values) {
-                float dx = pointX - x;
-                float dy = yFor(value, plotMinValue, plotMaxValue) - y;
-                float distance = dx * dx + dy * dy;
-                if (distance < bestDistance) {
-                    bestDistance = distance;
-                    nearest = item;
+    private void selectAt(float x) {
+        if (data.isEmpty() || right <= left) return;
+        int index = (int) Math.round(viewport.start() + plotFraction(x) * viewport.span());
+        index = Math.max(viewport.first(), Math.min(viewport.last(), index));
+        if (index >= 0) select(index);
+    }
+
+    private void releaseParent() {
+        if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
+    }
+
+    @Override public boolean onTouchEvent(MotionEvent event) {
+        if (data.isEmpty()) return false;
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            downX = lastX = event.getX();
+            downY = event.getY();
+            dragging = scrubbing = hadScale = verticalRejected = false;
+            touchingOverview = downY >= overviewTop - 6 * density;
+            if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+        } else if (action == MotionEvent.ACTION_POINTER_DOWN) {
+            hadScale = true;
+        }
+        scaleGestures.onTouchEvent(event);
+        gestures.onTouchEvent(event);
+        if (action == MotionEvent.ACTION_MOVE && !scaleGestures.isInProgress() && !hadScale) {
+            float dx = event.getX() - downX;
+            float dy = event.getY() - downY;
+            if (!dragging && !scrubbing && !touchingOverview && Math.abs(dy) > touchSlop && Math.abs(dy) > Math.abs(dx)) {
+                verticalRejected = true;
+                releaseParent();
+                return false;
+            }
+            if (touchingOverview) { dragging = true; centerOverview(event.getX()); }
+            else if (scrubbing) selectAt(event.getX());
+            else {
+                if (Math.abs(dx) > touchSlop && Math.abs(dx) > Math.abs(dy)) dragging = true;
+                if (dragging && right > left) {
+                    viewport.pan(-(event.getX() - lastX) / (right - left) * viewport.span());
+                    refreshViewport();
                 }
             }
+            lastX = event.getX();
         }
-        float hitRadius = 40 * getResources().getDisplayMetrics().density;
-        return bestDistance <= hitRadius * hitRadius ? nearest : null;
-    }
-
-    @Override
-    public boolean onTouchEvent(MotionEvent event) {
-        if (event.getAction() == MotionEvent.ACTION_DOWN) return true;
-        if (event.getAction() == MotionEvent.ACTION_UP) {
-            Measurement nearest = nearestMeasurement(event.getX(), event.getY());
-            if (nearest != null && nearest != selectedMeasurement) {
-                selectedMeasurement = nearest;
-                invalidate();
-                notifySelection();
-            }
-            performClick();
-            return true;
-        }
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) releaseParent();
         return true;
     }
 
-    @Override
-    public boolean performClick() {
-        super.performClick();
-        return true;
-    }
+    @Override public boolean performClick() { super.performClick(); return true; }
 }

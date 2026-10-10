@@ -5,8 +5,10 @@ import android.app.AlertDialog;
 import android.app.DatePickerDialog;
 import android.app.TimePickerDialog;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -14,7 +16,6 @@ import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.InputType;
 import android.text.style.ForegroundColorSpan;
-import android.text.style.RelativeSizeSpan;
 import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
@@ -23,6 +24,7 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -42,15 +44,16 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_EXPORT_REPORT = 41;
     private static final int REQUEST_EXPORT_BACKUP = 42;
     private static final int REQUEST_IMPORT_DATA = 43;
-    private static final int BG = 0xFFF4F7F5;
+    private static final int REQUEST_CAPTURE_PRESSURE = 44;
+    private static final int BG = 0xFFF2F2F7;
     private static final int SURFACE = 0xFFFFFFFF;
-    private static final int INK = 0xFF1D2B26;
-    private static final int MUTED = 0xFF68766F;
-    private static final int ACCENT = 0xFF187C68;
-    private static final int SYS = 0xFFD66B51;
-    private static final int DIA = 0xFF4886B8;
-    private static final int PULSE = 0xFFB1811E;
-    private static final int LINE = 0xFFE6ECE8;
+    private static final int INK = 0xFF1C1C1E;
+    private static final int MUTED = 0xFF636366;
+    private static final int ACCENT = 0xFF0066CC;
+    private static final int SYS = 0xFFBF5543;
+    private static final int DIA = 0xFF326CA5;
+    private static final int PULSE = 0xFF966820;
+    private static final int LINE = 0xFFE5E5EA;
     private static final int STATUS_NORMAL = 0xFF167A50;
     private static final int STATUS_ELEVATED = 0xFF9A6100;
     private static final int STATUS_HIGH = 0xFFB8322A;
@@ -64,6 +67,7 @@ public final class MainActivity extends Activity {
     private TrendChartView chart;
     private TextView days7Button;
     private TextView days30Button;
+    private TextView allDaysButton;
     private TextView dateButton;
     private TextView pressureButton;
     private TextView pulseButton;
@@ -71,6 +75,14 @@ public final class MainActivity extends Activity {
     private TextView chartReadoutLabel;
     private TextView chartReadoutDate;
     private TextView chartReadoutValue;
+    private TextView viewportLabel;
+    private TextView previousButton;
+    private TextView nextButton;
+    private TextView zoomInButton;
+    private TextView zoomOutButton;
+    private ScrollView mainScroll;
+    private LinearLayout historySection;
+    private int historyLimit = 30;
     private int selectedDays = 7;
     private Long selectedDateStart;
     private Long selectedDateEnd;
@@ -82,7 +94,7 @@ public final class MainActivity extends Activity {
         database = new MeasurementDatabase(this);
         Window window = getWindow();
         window.setStatusBarColor(BG);
-        window.setNavigationBarColor(BG);
+        window.setNavigationBarColor(SURFACE);
         int systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
         if (Build.VERSION.SDK_INT >= 26) systemUiVisibility |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
         window.getDecorView().setSystemUiVisibility(systemUiVisibility);
@@ -107,19 +119,23 @@ public final class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(false);
+        mainScroll = new ScrollView(this);
+        mainScroll.setFillViewport(false);
+        mainScroll.setClipToPadding(false);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(20), dp(14), dp(20), dp(16));
+        content.setPadding(dp(16), dp(18), dp(16), dp(20));
 
         addHeader(content);
         content.addView(summaryPanel(), marginParams(MATCH, WRAP, 0, 22, 0, 0));
         addTrendSection(content);
-        addHistorySection(content);
+        historySection = new LinearLayout(this);
+        historySection.setOrientation(LinearLayout.VERTICAL);
+        content.addView(historySection, new LinearLayout.LayoutParams(MATCH, WRAP));
+        refreshHistorySection();
 
-        scroll.addView(content, new ScrollView.LayoutParams(MATCH, WRAP));
-        root.addView(scroll, new LinearLayout.LayoutParams(MATCH, 0, 1));
+        mainScroll.addView(content, new ScrollView.LayoutParams(MATCH, WRAP));
+        root.addView(mainScroll, new LinearLayout.LayoutParams(MATCH, 0, 1));
         root.addView(footer(), new LinearLayout.LayoutParams(MATCH, WRAP));
         setContentView(root);
     }
@@ -129,20 +145,21 @@ public final class MainActivity extends Activity {
         header.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout titleBlock = new LinearLayout(this);
         titleBlock.setOrientation(LinearLayout.VERTICAL);
-        titleBlock.addView(label("血压记录", 13, ACCENT, true));
-        titleBlock.addView(label("血压日记", 26, INK, true), marginParams(MATCH, WRAP, 0, 6, 0, 0));
+        titleBlock.addView(label("血压日记", 30, INK, true));
         header.addView(titleBlock, new LinearLayout.LayoutParams(0, WRAP, 1));
 
-        TextView settings = label("⚙️", 24, INK, false);
-        settings.setGravity(Gravity.CENTER);
-        settings.setBackground(rounded(SURFACE, 8, LINE));
+        ImageButton settings = new ImageButton(this);
+        settings.setImageResource(R.drawable.ic_settings);
+        settings.setImageTintList(ColorStateList.valueOf(ACCENT));
+        settings.setPadding(dp(12), dp(12), dp(12), dp(12));
+        settings.setBackground(tappable(SURFACE, 16, 0));
         settings.setContentDescription("数据管理设置");
         settings.setOnClickListener(v -> showDataManagementMenu());
         header.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
         content.addView(header);
 
-        TextView sub = label(dateFormat.format(new Date()), 13, MUTED, false);
-        content.addView(sub, marginParams(MATCH, WRAP, 0, 4, 0, 0));
+        TextView sub = label(dateFormat.format(new Date()), 15, MUTED, false);
+        content.addView(sub, marginParams(MATCH, WRAP, 0, 14, 0, 0));
     }
 
     private View summaryPanel() {
@@ -150,15 +167,17 @@ public final class MainActivity extends Activity {
         LinearLayout heading = horizontal();
         LinearLayout headingCopy = new LinearLayout(this);
         headingCopy.setOrientation(LinearLayout.VERTICAL);
-        headingCopy.addView(label("最近一次测量", 15, INK, true));
+        headingCopy.addView(label("最近一次测量", 17, INK, true));
         if (measurements.isEmpty()) {
-            headingCopy.addView(label("还没有记录", 14, MUTED, false), marginParams(MATCH, WRAP, 0, 4, 0, 0));
+            headingCopy.addView(label("还没有记录", 16, MUTED, false), marginParams(MATCH, WRAP, 0, 6, 0, 0));
         } else {
-            headingCopy.addView(label(measurementDateTime(measurements.get(0).measuredAt), 15, MUTED, true),
-                    marginParams(MATCH, WRAP, 0, 4, 0, 0));
+            headingCopy.addView(label(measurementDateTime(measurements.get(0).measuredAt), 19, INK, true),
+                    marginParams(MATCH, WRAP, 0, 6, 0, 0));
         }
         heading.addView(headingCopy, new LinearLayout.LayoutParams(0, WRAP, 1));
-        TextView count = label(todayCount() + " 次今日", 13, ACCENT, true);
+        TextView count = label("今天 " + todayCount() + " 次", 14, ACCENT, true);
+        count.setPadding(dp(8), dp(6), dp(8), dp(6));
+        count.setBackground(rounded(0xFFEBF4FF, 8, 0));
         heading.addView(count);
         panel.addView(heading);
 
@@ -167,27 +186,19 @@ public final class MainActivity extends Activity {
         panel.addView(divider, marginParams(MATCH, dp(1), 0, 16, 0, 14));
 
         Measurement latest = measurements.isEmpty() ? null : measurements.get(0);
-        LinearLayout values = horizontal();
-        values.setGravity(Gravity.CENTER_VERTICAL);
-        values.addView(summaryMetric("收缩压", latest == null ? "--" : String.valueOf(latest.systolic), "mmHg", SYS),
-                new LinearLayout.LayoutParams(0, WRAP, 1));
-        values.addView(verticalDivider());
-        values.addView(summaryMetric("舒张压", latest == null ? "--" : String.valueOf(latest.diastolic), "mmHg", DIA),
-                new LinearLayout.LayoutParams(0, WRAP, 1));
-        values.addView(verticalDivider());
-        values.addView(summaryMetric("脉搏", latest == null ? "--" : String.valueOf(latest.pulse), "次/分", PULSE),
-                new LinearLayout.LayoutParams(0, WRAP, 1));
-        panel.addView(values);
+        panel.addView(measurementValues(latest, true));
 
         LinearLayout statusRow = horizontal();
         statusRow.setGravity(Gravity.CENTER_VERTICAL);
-        statusRow.addView(label("本次血压参考", 14, INK, true), new LinearLayout.LayoutParams(0, WRAP, 1));
         if (latest != null) statusRow.addView(statusBadge(statusFor(latest.systolic, latest.diastolic)));
-        TextView guidance = label("判读说明", 13, ACCENT, true);
+        View spacer = new View(this);
+        statusRow.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1));
+        TextView guidance = label("判读说明  ›", 15, ACCENT, true);
         guidance.setGravity(Gravity.CENTER);
         guidance.setMinHeight(dp(48));
         guidance.setPadding(dp(10), 0, dp(4), 0);
         guidance.setContentDescription("查看血压判读说明");
+        guidance.setBackground(tappable(SURFACE, 8, 0));
         guidance.setOnClickListener(v -> showPressureGuidance());
         statusRow.addView(guidance);
         panel.addView(statusRow, marginParams(MATCH, WRAP, 0, 12, 0, 0));
@@ -203,10 +214,10 @@ public final class MainActivity extends Activity {
         column.setOrientation(LinearLayout.VERTICAL);
         column.setGravity(Gravity.CENTER_HORIZONTAL);
         column.setPadding(dp(2), 0, dp(2), 0);
-        column.addView(label(title, 14, MUTED, false));
-        if (title.equals("收缩压") && !"--".equals(value)) color = statusForSystolic(Integer.parseInt(value)).color;
-        if (title.equals("舒张压") && !"--".equals(value)) color = statusForDiastolic(Integer.parseInt(value)).color;
-        TextView number = label(value, 30, color, true);
+        column.addView(label(title, 16, MUTED, true));
+        if (title.equals("高压") && !"--".equals(value)) color = statusForSystolic(Integer.parseInt(value)).color;
+        if (title.equals("低压") && !"--".equals(value)) color = statusForDiastolic(Integer.parseInt(value)).color;
+        TextView number = label(value, 38, color, true);
         column.addView(number, marginParams(WRAP, WRAP, 0, 4, 0, 0));
         column.addView(label(unit, 13, MUTED, false));
         return column;
@@ -215,65 +226,109 @@ public final class MainActivity extends Activity {
     private View verticalDivider() {
         View divider = new View(this);
         divider.setBackgroundColor(LINE);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(1), dp(48));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(1), dp(60));
         params.setMargins(dp(3), 0, dp(3), 0);
         divider.setLayoutParams(params);
         return divider;
     }
 
     private void addTrendSection(LinearLayout content) {
-        LinearLayout titleRow = horizontal();
-        TextView title = label("趋势", 19, INK, true);
-        titleRow.addView(title, new LinearLayout.LayoutParams(0, WRAP, 1));
-        days7Button = segment("7日", selectedDays == 7, () -> selectDays(7));
-        days30Button = segment("30日", selectedDays == 30, () -> selectDays(30));
-        String dateButtonText = selectedDateStart == null
-                ? "按日期" : selectedDateLabel(selectedDateStart);
-        dateButton = segment(dateButtonText, selectedDateStart != null, this::chooseTrendDate);
+        content.addView(label("血压趋势", 22, INK, true),
+                marginParams(MATCH, WRAP, 2, 28, 0, 10));
         LinearLayout range = horizontal();
-        range.addView(days7Button);
-        range.addView(days30Button, marginParams(WRAP, dp(48), 6, 0, 0, 0));
-        range.addView(dateButton, marginParams(WRAP, dp(48), 6, 0, 0, 0));
-        titleRow.addView(range);
-        content.addView(titleRow, marginParams(MATCH, WRAP, 0, 24, 0, 10));
+        range.setPadding(dp(3), dp(3), dp(3), dp(3));
+        range.setBackground(rounded(0xFFE7E7ED, 12, 0));
+        days7Button = segment("7日", selectedDateStart == null && selectedDays == 7, () -> selectDays(7));
+        days30Button = segment("30日", selectedDateStart == null && selectedDays == 30, () -> selectDays(30));
+        allDaysButton = segment("全部", selectedDateStart == null && selectedDays == 0, () -> selectDays(0));
+        dateButton = segment("按日期", selectedDateStart != null, this::chooseTrendDate);
+        range.addView(days7Button, new LinearLayout.LayoutParams(0, WRAP, 1));
+        range.addView(days30Button, marginWeightParams(1, 2));
+        range.addView(allDaysButton, marginWeightParams(1, 2));
+        range.addView(dateButton, marginWeightParams(1, 2));
+        content.addView(range, marginParams(MATCH, WRAP, 0, 0, 0, 12));
 
         LinearLayout chartPanel = panel();
         LinearLayout metricSwitch = horizontal();
+        metricSwitch.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout metrics = horizontal();
+        metrics.setPadding(dp(3), dp(3), dp(3), dp(3));
+        metrics.setBackground(rounded(BG, 12, 0));
         pressureButton = segment("血压", !showPulse, () -> selectMetric(false));
         pulseButton = segment("脉搏", showPulse, () -> selectMetric(true));
-        metricSwitch.addView(pressureButton);
-        metricSwitch.addView(pulseButton, marginParams(WRAP, dp(48), 6, 0, 0, 0));
+        metrics.addView(pressureButton, new LinearLayout.LayoutParams(0, WRAP, 1));
+        metrics.addView(pulseButton, marginWeightParams(1, 2));
+        metricSwitch.addView(metrics, new LinearLayout.LayoutParams(0, WRAP, 1));
+        TextView overview = actionButton("全览", () -> chart.showAll());
+        overview.setContentDescription("查看当前日期范围内的全部测量");
+        metricSwitch.addView(overview, marginParams(WRAP, WRAP, 10, 0, 0, 0));
         chartPanel.addView(metricSwitch);
 
         chartLegend = horizontal();
         refreshChartLegend();
-        chartPanel.addView(chartLegend, marginParams(MATCH, WRAP, 0, 14, 0, 10));
+        chartPanel.addView(chartLegend, marginParams(MATCH, WRAP, 0, 16, 0, 10));
 
-        LinearLayout readout = new LinearLayout(this);
-        readout.setOrientation(LinearLayout.VERTICAL);
-        chartReadoutDate = label("", 22, INK, true);
+        chartReadoutDate = label("", 20, INK, true);
+        chartReadoutDate.setLineSpacing(dp(3), 1);
+        chartReadoutDate.setMinLines(2);
         chartReadoutValue = label("", 19, INK, true);
-        chartReadoutLabel = label("", 13, MUTED, false);
-        readout.addView(chartReadoutDate);
-        readout.addView(chartReadoutValue, marginParams(MATCH, WRAP, 0, 5, 0, 0));
-        readout.addView(chartReadoutLabel, marginParams(MATCH, WRAP, 0, 3, 0, 0));
-        chartPanel.addView(readout, marginParams(MATCH, WRAP, 0, 0, 0, 8));
+        chartReadoutValue.setMinLines(2);
+        chartReadoutLabel = label("", 14, MUTED, false);
+        chartReadoutLabel.setMinLines(2);
+        chartPanel.addView(chartReadoutDate);
+        chartPanel.addView(chartReadoutValue, marginParams(MATCH, WRAP, 0, 8, 0, 0));
+        chartPanel.addView(chartReadoutLabel, marginParams(MATCH, WRAP, 0, 6, 0, 0));
 
         chart = new TrendChartView(this);
-        chart.setOnMeasurementSelectedListener((item, index, count) ->
-                refreshChartReadout(item, index, count));
+        float fontScale = getResources().getConfiguration().fontScale;
+        chartPanel.addView(chart, new LinearLayout.LayoutParams(MATCH,
+                dp(270 + Math.round(Math.max(0, fontScale - 1) * 90))));
+
+        viewportLabel = label("", 14, MUTED, false);
+        viewportLabel.setGravity(Gravity.CENTER);
+        chartPanel.addView(viewportLabel, marginParams(MATCH, WRAP, 0, 8, 0, 10));
+        LinearLayout navigation = horizontal();
+        previousButton = actionButton("上一条", () -> chart.selectRelative(-1));
+        nextButton = actionButton("下一条", () -> chart.selectRelative(1));
+        zoomOutButton = actionButton("缩小", () -> chart.zoomOut());
+        zoomInButton = actionButton("放大", () -> chart.zoomIn());
+        zoomOutButton.setContentDescription("缩小图表，查看更多测量");
+        zoomInButton.setContentDescription("放大图表，看清单次测量");
+        navigation.addView(previousButton, new LinearLayout.LayoutParams(0, WRAP, 1));
+        navigation.addView(nextButton, marginWeightParams(1, 6));
+        chartPanel.addView(navigation);
+        if (needsWideText()) {
+            LinearLayout zoomControls = horizontal();
+            zoomControls.addView(zoomOutButton, new LinearLayout.LayoutParams(0, WRAP, 1));
+            zoomControls.addView(zoomInButton, marginWeightParams(1, 6));
+            chartPanel.addView(zoomControls, marginParams(MATCH, WRAP, 0, 6, 0, 0));
+        } else {
+            navigation.addView(zoomOutButton, marginWeightParams(1, 6));
+            navigation.addView(zoomInButton, marginWeightParams(1, 6));
+        }
+        TextView gestures = label("左右滑动查看 · 点击圆点看数值\n双指缩放 · 长按拖动逐条查看", 14, MUTED, false);
+        gestures.setLineSpacing(dp(4), 1);
+        chartPanel.addView(gestures, marginParams(MATCH, WRAP, 0, 14, 0, 0));
+        chartPanel.addView(label("按记录先后排列，每个点代表一次测量", 13, MUTED, false),
+                marginParams(MATCH, WRAP, 0, 6, 0, 0));
+        chart.setOnMeasurementSelectedListener(this::refreshChartReadout);
+        chart.setOnViewportChangedListener((first, last, count, canZoomIn, canZoomOut) -> {
+            viewportLabel.setText(count == 0 ? "暂无测量数据" :
+                    "显示第 " + (first + 1) + "–" + (last + 1) + " 条 / 共 " + count + " 条");
+            setControlEnabled(zoomInButton, canZoomIn);
+            setControlEnabled(zoomOutButton, canZoomOut);
+        });
         chart.setData(measurements, selectedDays, showPulse, selectedDateStart, selectedDateEnd);
-        chartPanel.addView(chart, new LinearLayout.LayoutParams(MATCH, dp(210)));
         content.addView(chartPanel);
     }
 
-    private View legendItem(String text, int color) {
+    private View legendItem(String text, int color, boolean square) {
         LinearLayout item = horizontal();
-        View dot = new View(this);
-        dot.setBackground(circle(color));
-        item.addView(dot, new LinearLayout.LayoutParams(dp(8), dp(8)));
-        TextView name = label(text, 13, MUTED, false);
-        item.addView(name, marginParams(WRAP, WRAP, 6, 0, 0, 0));
+        item.setGravity(Gravity.CENTER_VERTICAL);
+        View marker = new View(this);
+        marker.setBackground(square ? rounded(color, 1, 0) : circle(color));
+        item.addView(marker, new LinearLayout.LayoutParams(dp(8), dp(8)));
+        item.addView(label(text, 14, MUTED, false), marginParams(WRAP, WRAP, 6, 0, 0, 0));
         return item;
     }
 
@@ -281,37 +336,43 @@ public final class MainActivity extends Activity {
         List<Measurement> history = historyForSelectedDate();
         LinearLayout heading = horizontal();
         heading.setGravity(Gravity.CENTER_VERTICAL);
-        String headingText = selectedDateStart == null
-                ? "测量记录" : selectedDateLabel(selectedDateStart) + " 的测量记录";
-        heading.addView(label(headingText, 20, INK, true), new LinearLayout.LayoutParams(0, WRAP, 1));
-        heading.addView(label(history.size() + " 条", 14, MUTED, false));
-        content.addView(heading, marginParams(MATCH, WRAP, 0, 25, 0, 7));
+        heading.addView(label("测量记录", 22, INK, true), new LinearLayout.LayoutParams(0, WRAP, 1));
+        heading.addView(label("共 " + history.size() + " 条", 15, MUTED, false));
+        content.addView(heading, marginParams(MATCH, WRAP, 2, 28, 0, 4));
+        String scope = selectedDateStart == null ? "按时间从近到远" :
+                fullDateFormat.format(new Date(selectedDateStart)) + " · 当天全部记录";
+        content.addView(label(scope, 15, MUTED, false), marginParams(MATCH, WRAP, 2, 0, 0, 12));
 
         if (history.isEmpty()) {
             LinearLayout empty = panel();
             empty.setGravity(Gravity.CENTER);
-            String emptyMessage = selectedDateStart == null
-                    ? "添加第一次测量，开始查看自己的变化" : "这一天还没有测量记录";
-            TextView emptyText = label(emptyMessage, 15, MUTED, false);
+            String message = selectedDateStart == null
+                    ? "点击下方按钮，记录第一次测量" : "这一天还没有测量记录";
+            TextView emptyText = label(message, 17, MUTED, false);
             emptyText.setGravity(Gravity.CENTER);
+            emptyText.setPadding(0, dp(16), 0, dp(16));
             empty.addView(emptyText);
             content.addView(empty);
             return;
         }
 
-        int count = selectedDateStart == null ? Math.min(30, history.size()) : history.size();
+        int count = selectedDateStart == null ? Math.min(historyLimit, history.size()) : history.size();
         for (int i = 0; i < count; i++) {
-            Measurement item = history.get(i);
-            content.addView(recordRow(item), new LinearLayout.LayoutParams(MATCH, WRAP));
-            if (i < count - 1) {
-                View divider = new View(this);
-                divider.setBackgroundColor(LINE);
-                content.addView(divider, marginParams(MATCH, dp(1), 0, 0, 0, 0));
-            }
+            content.addView(recordRow(history.get(i)), marginParams(MATCH, WRAP, 0, 0, 0, 12));
         }
         if (history.size() > count) {
-            content.addView(label("仅显示最近 30 条记录", 13, MUTED, false), marginParams(MATCH, WRAP, 0, 9, 0, 0));
+            TextView more = actionButton("查看更多记录（还有 " + (history.size() - count) + " 条）", () -> {
+                historyLimit += 30;
+                refreshHistorySection();
+            });
+            content.addView(more, marginParams(MATCH, WRAP, 0, 0, 0, 6));
         }
+    }
+
+    private void refreshHistorySection() {
+        if (historySection == null) return;
+        historySection.removeAllViews();
+        addHistorySection(historySection);
     }
 
     private void showDataManagementMenu() {
@@ -354,6 +415,10 @@ public final class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_CAPTURE_PRESSURE) {
+            if (resultCode == RESULT_OK && data != null) saveCapturedMeasurement(data);
+            return;
+        }
         if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
         if (requestCode == REQUEST_EXPORT_REPORT || requestCode == REQUEST_EXPORT_BACKUP) {
@@ -361,6 +426,19 @@ public final class MainActivity extends Activity {
         } else if (requestCode == REQUEST_IMPORT_DATA) {
             previewImport(uri);
         }
+    }
+
+    private void saveCapturedMeasurement(Intent data) {
+        int systolic = data.getIntExtra(OcrCaptureActivity.EXTRA_SYSTOLIC, 0);
+        int diastolic = data.getIntExtra(OcrCaptureActivity.EXTRA_DIASTOLIC, 0);
+        int pulse = data.getIntExtra(OcrCaptureActivity.EXTRA_PULSE, 0);
+        long time = data.getLongExtra(OcrCaptureActivity.EXTRA_TIME, System.currentTimeMillis());
+        if (!BloodPressureOcrParser.inRange(0, systolic) || !BloodPressureOcrParser.inRange(1, diastolic) ||
+                !BloodPressureOcrParser.inRange(2, pulse) || diastolic >= systolic) return;
+        database.insert(systolic, diastolic, pulse, time, data.getStringExtra(OcrCaptureActivity.EXTRA_NOTE));
+        if (selectedDateStart != null) setSelectedDate(time);
+        render();
+        Toast.makeText(this, "拍照记录已保存", Toast.LENGTH_SHORT).show();
     }
 
     private void exportTo(Uri uri, int requestCode) {
@@ -449,91 +527,139 @@ public final class MainActivity extends Activity {
     }
 
     private View recordRow(Measurement item) {
-        LinearLayout row = horizontal();
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(12), 0, dp(12));
+        LinearLayout card = panel();
+        LinearLayout heading = horizontal();
+        heading.setGravity(Gravity.TOP);
+        LinearLayout timeBlock = new LinearLayout(this);
+        timeBlock.setOrientation(LinearLayout.VERTICAL);
+        timeBlock.addView(label(selectedDateLabel(item.measuredAt), 17, MUTED, true));
+        timeBlock.addView(label(measurementTime(item.measuredAt), 22, INK, true),
+                marginParams(MATCH, WRAP, 0, 3, 0, 0));
+        heading.addView(timeBlock, new LinearLayout.LayoutParams(0, WRAP, 1));
+        TextView more = actionButton("•••", () -> showRecordMenu(item));
+        more.setTextSize(22);
+        more.setContentDescription("更多操作：" + measurementDateTime(item.measuredAt));
+        more.setBackground(tappable(BG, 12, 0));
+        heading.addView(more, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        card.addView(heading);
 
-        TextView marker = label("血压", 12, ACCENT, true);
-        marker.setGravity(Gravity.CENTER);
-        marker.setBackground(rounded(0xFFE2F1EC, 8, 0));
-        row.addView(marker, new LinearLayout.LayoutParams(dp(38), dp(38)));
-
-        LinearLayout copy = new LinearLayout(this);
-        copy.setOrientation(LinearLayout.VERTICAL);
-        TextView time = label(measurementDateTime(item.measuredAt), 18, INK, true);
-        copy.addView(time);
-        LinearLayout pressureRow = horizontal();
-        pressureRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView pressure = label("", 16, INK, true);
-        pressure.setText(coloredPressure(item.systolic, item.diastolic, 16));
-        pressureRow.addView(pressure);
-        copy.addView(pressureRow, marginParams(MATCH, WRAP, 0, 3, 0, 0));
-        copy.addView(statusBadge(statusFor(item.systolic, item.diastolic)),
-                marginParams(WRAP, WRAP, 0, 3, 0, 0));
-        String detail = "脉搏 " + item.pulse + " 次/分";
-        if (!item.note.isEmpty()) detail += "  ·  " + item.note;
-        TextView sub = label("", 13, MUTED, false);
-        SpannableString styledDetail = new SpannableString(detail);
-        int pulseStart = detail.indexOf(String.valueOf(item.pulse), detail.indexOf("脉搏"));
-        if (pulseStart >= 0) {
-            styledDetail.setSpan(new ForegroundColorSpan(PULSE), pulseStart,
-                    pulseStart + String.valueOf(item.pulse).length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        View divider = new View(this);
+        divider.setBackgroundColor(LINE);
+        card.addView(divider, marginParams(MATCH, dp(1), 0, 14, 0, 14));
+        card.addView(measurementValues(item, false));
+        card.addView(statusBadge(statusFor(item.systolic, item.diastolic)),
+                marginParams(WRAP, WRAP, 0, 14, 0, 0));
+        if (!item.note.trim().isEmpty()) {
+            TextView note = label("备注：" + item.note, 16, MUTED, false);
+            note.setLineSpacing(dp(3), 1);
+            card.addView(note, marginParams(MATCH, WRAP, 0, 10, 0, 0));
         }
-        sub.setText(styledDetail);
-        sub.setMaxLines(2);
-        copy.addView(sub, marginParams(MATCH, WRAP, 0, 4, 0, 0));
-        LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(0, WRAP, 1);
-        copyParams.setMargins(dp(12), 0, dp(8), 0);
-        row.addView(copy, copyParams);
+        return card;
+    }
 
-        TextView edit = label("编辑", 13, ACCENT, true);
-        edit.setGravity(Gravity.CENTER);
-        edit.setMinWidth(dp(48));
-        edit.setMinHeight(dp(48));
-        edit.setPadding(dp(4), dp(4), dp(4), dp(4));
-        edit.setOnClickListener(v -> showMeasurementDialog(item));
-        edit.setContentDescription("编辑" + measurementDateTime(item.measuredAt) + "的测量记录");
-        row.addView(edit);
+    private boolean needsWideText() {
+        return getResources().getConfiguration().fontScale > 1.25f ||
+                getResources().getConfiguration().screenWidthDp < 340;
+    }
 
-        TextView delete = label("删除", 13, MUTED, false);
-        delete.setGravity(Gravity.CENTER);
-        delete.setMinWidth(dp(48));
-        delete.setMinHeight(dp(48));
-        delete.setPadding(dp(4), dp(4), dp(4), dp(4));
-        delete.setOnClickListener(v -> confirmDelete(item));
-        delete.setContentDescription("删除" + measurementDateTime(item.measuredAt) + "的测量记录");
-        row.addView(delete);
+    private View measurementValues(Measurement item, boolean summary) {
+        String[] names = {"高压", "低压", "脉搏"};
+        String[] units = {"mmHg", "mmHg", "次/分"};
+        String[] numbers = item == null ? new String[]{"--", "--", "--"} :
+                new String[]{String.valueOf(item.systolic), String.valueOf(item.diastolic), String.valueOf(item.pulse)};
+        int[] colors = item == null ? new int[]{MUTED, MUTED, MUTED} :
+                new int[]{statusForSystolic(item.systolic).color, statusForDiastolic(item.diastolic).color, PULSE};
+        LinearLayout values = new LinearLayout(this);
+        values.setOrientation(needsWideText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        for (int i = 0; i < 3; i++) {
+            if (needsWideText()) {
+                LinearLayout line = horizontal();
+                line.setGravity(Gravity.CENTER_VERTICAL);
+                line.addView(label(names[i], 18, MUTED, true), new LinearLayout.LayoutParams(0, WRAP, 1));
+                line.addView(label(numbers[i], 34, colors[i], true));
+                line.addView(label(units[i], 14, MUTED, false), marginParams(WRAP, WRAP, 10, 0, 0, 0));
+                values.addView(line, marginParams(MATCH, WRAP, 0, i == 0 ? 0 : 10, 0, 0));
+            } else {
+                if (summary && i > 0) values.addView(verticalDivider());
+                View metric = summary ? summaryMetric(names[i], numbers[i], units[i], colors[i]) :
+                        recordMetric(names[i], numbers[i], units[i], colors[i]);
+                values.addView(metric, new LinearLayout.LayoutParams(0, WRAP, 1));
+            }
+        }
+        return values;
+    }
 
-        copy.setOnClickListener(v -> showMeasurementDialog(item));
-        return row;
+    private View recordMetric(String name, String value, String unit, int color) {
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.addView(label(name, 16, MUTED, true));
+        column.addView(label(value, 32, color, true),
+                marginParams(MATCH, WRAP, 0, 4, 0, 0));
+        column.addView(label(unit, 13, MUTED, false), marginParams(MATCH, WRAP, 0, 2, 0, 0));
+        column.setContentDescription(name + " " + value + " " + unit);
+        column.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        return column;
+    }
+
+    private void showRecordMenu(Measurement item) {
+        new AlertDialog.Builder(this)
+                .setTitle(measurementDateTime(item.measuredAt))
+                .setItems(new String[]{"编辑这条记录", "删除这条记录"}, (dialog, which) -> {
+                    if (which == 0) showMeasurementDialog(item);
+                    else confirmDelete(item);
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private View footer() {
         LinearLayout footer = new LinearLayout(this);
         footer.setOrientation(LinearLayout.VERTICAL);
-        footer.setPadding(dp(20), dp(9), dp(20), dp(9));
-        footer.setBackgroundColor(BG);
+        footer.setPadding(dp(16), dp(10), dp(16), dp(10));
+        footer.setBackgroundColor(SURFACE);
         Button add = new Button(this);
-        add.setText("＋  记录一次");
-        add.setTextSize(17);
-        add.setTextColor(SURFACE);
+        add.setText("手动录入");
+        add.setTextSize(20);
+        add.setTextColor(ACCENT);
         add.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         add.setAllCaps(false);
-        add.setBackground(rounded(ACCENT, 8, 0));
-        add.setMinHeight(dp(56));
+        add.setPadding(dp(16), dp(12), dp(16), dp(12));
+        add.setBackground(tappable(0xFFEBF4FF, 14, 0));
+        add.setMinHeight(dp(58));
         add.setOnClickListener(v -> showMeasurementDialog(null));
-        footer.addView(add, new LinearLayout.LayoutParams(MATCH, dp(56)));
-        TextView note = label("记录用于趋势观察，不替代专业诊断", 12, MUTED, false);
+        LinearLayout entries = horizontal();
+        entries.addView(add, new LinearLayout.LayoutParams(0, WRAP, 1));
+        Button camera = new Button(this);
+        camera.setText("拍照录入");
+        camera.setTextSize(20);
+        camera.setTextColor(SURFACE);
+        camera.setAllCaps(false);
+        camera.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        camera.setMinHeight(dp(58));
+        camera.setPadding(dp(12), dp(12), dp(12), dp(12));
+        camera.setBackground(tappable(ACCENT, 14, 0));
+        camera.setContentDescription("打开相机，拍照识别血压和脉搏");
+        camera.setOnClickListener(v -> startActivityForResult(new Intent(this, OcrCaptureActivity.class), REQUEST_CAPTURE_PRESSURE));
+        LinearLayout.LayoutParams cameraParams = new LinearLayout.LayoutParams(0, WRAP, 1);
+        cameraParams.setMargins(dp(12), 0, 0, 0);
+        entries.addView(camera, cameraParams);
+        footer.addView(entries, new LinearLayout.LayoutParams(MATCH, WRAP));
+        TextView note = label("记录用于趋势观察，不替代专业诊断", 13, MUTED, false);
         note.setGravity(Gravity.CENTER);
         footer.addView(note, marginParams(MATCH, WRAP, 0, 7, 0, 0));
         return footer;
     }
 
     private void selectDays(int days) {
+        if (selectedDateStart == null && selectedDays == days) return;
+        boolean leavingDateFilter = selectedDateStart != null;
         selectedDays = days;
         selectedDateStart = null;
         selectedDateEnd = null;
-        render();
+        // Keep the mounted chart and ScrollView; rebuilding them exposes a blank frame
+        // before the old scroll offset can be restored.
+        updateChartControls();
+        if (leavingDateFilter) refreshHistorySection();
     }
 
     private void chooseTrendDate() {
@@ -541,25 +667,28 @@ public final class MainActivity extends Activity {
         if (selectedDateStart != null) day.setTimeInMillis(selectedDateStart);
         DatePickerDialog picker = new DatePickerDialog(this, (view, year, month, date) -> {
             setSelectedDate(year, month, date);
-            render();
+            updateChartControls();
+            refreshHistorySection();
         }, day.get(Calendar.YEAR), day.get(Calendar.MONTH), day.get(Calendar.DAY_OF_MONTH));
         picker.getDatePicker().setMaxDate(System.currentTimeMillis());
         picker.show();
     }
 
     private void selectMetric(boolean pulse) {
+        if (showPulse == pulse) return;
         showPulse = pulse;
+        refreshChartLegend();
         updateChartControls();
     }
 
     private void updateChartControls() {
         if (days7Button == null || chart == null) return;
-        styleSegment(days7Button, selectedDays == 7);
-        styleSegment(days30Button, selectedDays == 30);
+        styleSegment(days7Button, selectedDateStart == null && selectedDays == 7);
+        styleSegment(days30Button, selectedDateStart == null && selectedDays == 30);
+        styleSegment(allDaysButton, selectedDateStart == null && selectedDays == 0);
         styleSegment(dateButton, selectedDateStart != null);
         styleSegment(pressureButton, !showPulse);
         styleSegment(pulseButton, showPulse);
-        refreshChartLegend();
         chart.setData(measurements, selectedDays, showPulse, selectedDateStart, selectedDateEnd);
     }
 
@@ -567,15 +696,17 @@ public final class MainActivity extends Activity {
         if (chartLegend == null) return;
         chartLegend.removeAllViews();
         if (showPulse) {
-            chartLegend.addView(legendItem("脉搏", PULSE));
+            chartLegend.addView(legendItem("脉搏 · 实线", PULSE, false));
         } else {
-            chartLegend.addView(legendItem("收缩压", SYS));
-            chartLegend.addView(legendItem("舒张压", DIA), marginParams(WRAP, WRAP, 14, 0, 0, 0));
+            chartLegend.addView(legendItem("高压 · 实线", SYS, false), new LinearLayout.LayoutParams(0, WRAP, 1));
+            chartLegend.addView(legendItem("低压 · 虚线", DIA, true), marginWeightParams(1, 8));
         }
     }
 
     private void refreshChartReadout(Measurement selected, int index, int count) {
         if (chartReadoutLabel == null) return;
+        setControlEnabled(previousButton, selected != null && index > 0);
+        setControlEnabled(nextButton, selected != null && index < count - 1);
         if (selected == null) {
             chartReadoutDate.setText(selectedDateStart == null ? "区间内暂无记录" : "这一天暂无记录");
             chartReadoutValue.setText("--");
@@ -583,19 +714,37 @@ public final class MainActivity extends Activity {
             chartReadoutLabel.setText("共 0 条测量");
             return;
         }
-        chartReadoutDate.setText(measurementDateTime(selected.measuredAt));
+        chartReadoutDate.setText(selectedDateLabel(selected.measuredAt) + "\n" + measurementTime(selected.measuredAt));
         String rangeLabel = selectedDateStart == null
-                ? "最近 " + selectedDays + " 日" : selectedDateLabel(selectedDateStart);
-        chartReadoutLabel.setText("第 " + (index + 1) + " 条 · " + rangeLabel + " · 共 " + count + " 条");
+                ? (selectedDays == 0 ? "全部测量" : "最近 " + selectedDays + " 日")
+                : selectedDateLabel(selectedDateStart);
+        chartReadoutLabel.setText(rangeLabel + " · 共 " + count + " 条\n已选第 " + (index + 1) + " 条");
         if (showPulse) {
             chartReadoutValue.setText(selected.pulse + " 次/分");
             chartReadoutValue.setTextColor(PULSE);
         } else {
-            chartReadoutValue.setText(coloredPressure(selected.systolic, selected.diastolic, 19));
+            String text = "高压 " + selected.systolic + "  ·  低压 " + selected.diastolic +
+                    " mmHg\n脉搏 " + selected.pulse + " 次/分";
+            SpannableString styled = new SpannableString(text);
+            colorNumber(styled, text, "高压", selected.systolic, statusForSystolic(selected.systolic).color);
+            colorNumber(styled, text, "低压", selected.diastolic, statusForDiastolic(selected.diastolic).color);
+            colorNumber(styled, text, "脉搏", selected.pulse, PULSE);
+            chartReadoutValue.setTextColor(INK);
+            chartReadoutValue.setText(styled);
         }
     }
 
+    private void colorNumber(SpannableString styled, String text, String name, int value, int color) {
+        String number = String.valueOf(value);
+        int start = text.indexOf(number, text.indexOf(name));
+        styled.setSpan(new ForegroundColorSpan(color), start, start + number.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+    }
+
     private String measurementDateTime(long timestamp) {
+        return selectedDateLabel(timestamp) + "  " + measurementTime(timestamp);
+    }
+
+    private String measurementTime(long timestamp) {
         Calendar time = Calendar.getInstance();
         time.setTimeInMillis(timestamp);
         int hour = time.get(Calendar.HOUR_OF_DAY);
@@ -606,9 +755,7 @@ public final class MainActivity extends Activity {
         else period = "晚上";
         int hour12 = hour % 12;
         if (hour12 == 0) hour12 = 12;
-        String date = time.get(Calendar.YEAR) == Calendar.getInstance().get(Calendar.YEAR)
-                ? monthDayFormat.format(new Date(timestamp)) : fullDateFormat.format(new Date(timestamp));
-        return date + "  " + period + " " +
+        return period + " " +
                 String.format(Locale.CHINA, "%d:%02d", hour12, time.get(Calendar.MINUTE));
     }
 
@@ -633,18 +780,6 @@ public final class MainActivity extends Activity {
         Calendar day = Calendar.getInstance();
         day.setTimeInMillis(timestamp);
         setSelectedDate(day.get(Calendar.YEAR), day.get(Calendar.MONTH), day.get(Calendar.DAY_OF_MONTH));
-    }
-
-    private SpannableString coloredPressure(int systolic, int diastolic, int sizeSp) {
-        String text = systolic + " / " + diastolic + " mmHg";
-        SpannableString styled = new SpannableString(text);
-        int slash = text.indexOf(" / ");
-        int unit = text.indexOf(" mmHg");
-        styled.setSpan(new ForegroundColorSpan(statusForSystolic(systolic).color), 0, slash, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        styled.setSpan(new ForegroundColorSpan(statusForDiastolic(diastolic).color), slash + 3, unit, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        styled.setSpan(new ForegroundColorSpan(MUTED), unit, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        styled.setSpan(new RelativeSizeSpan(0.78f), unit, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        return styled;
     }
 
     private PressureStatus statusFor(int systolic, int diastolic) {
@@ -677,9 +812,9 @@ public final class MainActivity extends Activity {
     private View statusBadge(PressureStatus status) {
         TextView badge = label(status.label, 13, status.color, true);
         badge.setGravity(Gravity.CENTER);
-        badge.setPadding(dp(8), dp(5), dp(8), dp(5));
+        badge.setPadding(dp(10), dp(6), dp(10), dp(6));
         badge.setMinHeight(dp(28));
-        badge.setBackground(rounded(status.background, 6, 0));
+        badge.setBackground(rounded(status.background, 8, 0));
         badge.setContentDescription("血压参考状态：" + status.label);
         return badge;
     }
@@ -746,15 +881,18 @@ public final class MainActivity extends Activity {
         LinearLayout inputBox = horizontal();
         inputBox.setGravity(Gravity.CENTER_VERTICAL);
         inputBox.setPadding(dp(18), 0, dp(18), 0);
-        inputBox.setBackground(rounded(SURFACE, 8, LINE));
+        inputBox.setBackground(rounded(0xFFF8FAFF, 14, ACCENT));
         EditText valueInput = numberField(values[0], names[0]);
         valueInput.setTextSize(42);
+        valueInput.setSingleLine(true);
+        valueInput.setMinHeight(dp(88));
         valueInput.setGravity(Gravity.CENTER_VERTICAL);
         valueInput.setPadding(0, dp(4), dp(8), dp(4));
         valueInput.setBackgroundColor(0x00000000);
-        valueInput.setHint("请输入");
+        valueInput.setHint("例如 120");
+        valueInput.setHintTextColor(0xFF8E8E93);
         valueInput.setSelectAllOnFocus(false);
-        inputBox.addView(valueInput, new LinearLayout.LayoutParams(0, dp(88), 1));
+        inputBox.addView(valueInput, new LinearLayout.LayoutParams(0, WRAP, 1));
         TextView unit = label("mmHg", 18, MUTED, true);
         inputBox.addView(unit);
         form.addView(inputBox);
@@ -777,8 +915,9 @@ public final class MainActivity extends Activity {
         TextView timeValue = label("", 16, INK, false);
         timeValue.setGravity(Gravity.CENTER_VERTICAL);
         timeValue.setPadding(dp(12), 0, dp(12), 0);
-        timeValue.setBackground(rounded(SURFACE, 8, LINE));
-        optionalDetails.addView(timeValue, new LinearLayout.LayoutParams(MATCH, dp(52)));
+        timeValue.setBackground(tappable(SURFACE, 12, LINE));
+        timeValue.setMinHeight(dp(52));
+        optionalDetails.addView(timeValue, new LinearLayout.LayoutParams(MATCH, WRAP));
         Runnable updateTime = () -> timeValue.setText(measurementDateTime(selected.getTimeInMillis()));
         updateTime.run();
         timeValue.setOnClickListener(v -> {
@@ -804,16 +943,16 @@ public final class MainActivity extends Activity {
         EditText note = new EditText(this);
         note.setTextSize(16);
         note.setTextColor(INK);
-        note.setHintTextColor(0xFF98A49E);
+        note.setHintTextColor(0xFF8E8E93);
         note.setHint("例如：起床后、运动后");
         note.setSingleLine(false);
         note.setMinLines(2);
         note.setMaxLines(3);
         note.setGravity(Gravity.TOP | Gravity.START);
         note.setPadding(dp(12), dp(10), dp(12), dp(8));
-        note.setBackground(rounded(SURFACE, 8, LINE));
+        note.setBackground(rounded(SURFACE, 12, LINE));
         if (existing != null) note.setText(existing.note);
-        optionalDetails.addView(note, new LinearLayout.LayoutParams(MATCH, dp(76)));
+        optionalDetails.addView(note, new LinearLayout.LayoutParams(MATCH, WRAP));
         if (existing != null) {
             optionalDetails.setVisibility(View.VISIBLE);
             moreToggle.setText("收起选填信息");
@@ -842,6 +981,7 @@ public final class MainActivity extends Activity {
         dialog.setOnShowListener(ignored -> {
             Window window = dialog.getWindow();
             if (window != null) {
+                window.setBackgroundDrawable(rounded(SURFACE, 22, 0));
                 window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE |
                         WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
             }
@@ -861,6 +1001,7 @@ public final class MainActivity extends Activity {
                 valueInput.setContentDescription("请输入" + names[step] + "，" + units[step]);
                 valueInput.setImeOptions(step < 2 ? EditorInfo.IME_ACTION_NEXT : EditorInfo.IME_ACTION_DONE);
                 unit.setText(units[step]);
+                valueInput.setHint(new String[]{"例如 120", "例如 80", "例如 70"}[step]);
                 valueInput.setText(values[step]);
                 valueInput.setSelection(valueInput.length());
                 validation.setText("");
@@ -976,26 +1117,53 @@ public final class MainActivity extends Activity {
     private LinearLayout panel() {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(16), dp(16), dp(16), dp(14));
-        panel.setBackground(rounded(SURFACE, 8, 0));
+        panel.setPadding(dp(16), dp(18), dp(16), dp(18));
+        panel.setBackground(rounded(SURFACE, 18, 0));
         return panel;
     }
 
     private TextView segment(String text, boolean selected, Runnable action) {
-        TextView button = label(text, 14, selected ? SURFACE : MUTED, selected);
+        TextView button = label(text, 16, selected ? ACCENT : MUTED, true);
         button.setGravity(Gravity.CENTER);
-        button.setPadding(dp(12), 0, dp(12), 0);
-        button.setMinWidth(dp(56));
+        button.setPadding(dp(6), dp(8), dp(6), dp(8));
         button.setMinHeight(dp(48));
-        button.setBackground(rounded(selected ? ACCENT : SURFACE, 8, selected ? 0 : LINE));
+        button.setBackground(tappable(selected ? SURFACE : 0x00000000, 9, 0));
+        button.setElevation(selected ? dp(1) : 0);
+        button.setSelected(selected);
         button.setOnClickListener(v -> action.run());
         return button;
     }
 
     private void styleSegment(TextView view, boolean selected) {
-        view.setTextColor(selected ? SURFACE : MUTED);
+        if (view.isSelected() == selected) return;
+        view.setSelected(selected);
+        view.setTextColor(selected ? ACCENT : MUTED);
         view.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        view.setBackground(rounded(selected ? ACCENT : SURFACE, 8, selected ? 0 : LINE));
+        view.setBackground(tappable(selected ? SURFACE : 0x00000000, 9, 0));
+        view.setElevation(selected ? dp(1) : 0);
+    }
+
+    private TextView actionButton(String text, Runnable action) {
+        TextView button = label(text, 15, ACCENT, true);
+        button.setGravity(Gravity.CENTER);
+        button.setPadding(dp(6), dp(8), dp(6), dp(8));
+        button.setMinHeight(dp(48));
+        button.setMinWidth(dp(48));
+        button.setBackground(tappable(0xFFEBF4FF, 11, 0));
+        button.setOnClickListener(v -> action.run());
+        return button;
+    }
+
+    private void setControlEnabled(TextView button, boolean enabled) {
+        if (button == null || button.isEnabled() == enabled) return;
+        button.setEnabled(enabled);
+        button.setTextColor(enabled ? ACCENT : 0xFF8E8E93);
+        button.setBackground(tappable(enabled ? 0xFFEBF4FF : BG, 11, 0));
+    }
+
+    private RippleDrawable tappable(int color, int radiusDp, int strokeColor) {
+        return new RippleDrawable(ColorStateList.valueOf(0x22007AFF),
+                rounded(color, radiusDp, strokeColor), rounded(SURFACE, radiusDp, 0));
     }
 
     private GradientDrawable rounded(int color, int radiusDp, int strokeColor) {

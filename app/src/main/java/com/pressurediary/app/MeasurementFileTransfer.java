@@ -39,7 +39,7 @@ final class MeasurementFileTransfer {
         SimpleDateFormat preciseDateTime = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.ROOT);
         for (Measurement item : measurements) {
             writeCsvRow(writer, new String[]{
-                    (item.measuredAt % 1000L == 0 ? dateTime : preciseDateTime)
+                    "测量于 " + (item.measuredAt % 1000L == 0 ? dateTime : preciseDateTime)
                             .format(new Date(item.measuredAt)), period(item.measuredAt),
                     String.valueOf(item.systolic), String.valueOf(item.diastolic),
                     String.valueOf(item.pulse), item.note
@@ -228,13 +228,17 @@ final class MeasurementFileTransfer {
     }
 
     private static long parseDateTime(String value) {
+        String text = value.trim();
+        // A descriptive prefix keeps spreadsheet software from coercing dates into narrow numeric cells.
+        // Continue accepting timestamps exported by 1.0.0.
+        if (text.startsWith("测量于 ")) text = text.substring("测量于 ".length()).trim();
         String[] formats = {"yyyy-MM-dd HH:mm:ss.SSS", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm"};
         for (String format : formats) {
             SimpleDateFormat parser = new SimpleDateFormat(format, Locale.ROOT);
             parser.setLenient(false);
             ParsePosition position = new ParsePosition(0);
-            Date parsed = parser.parse(value.trim(), position);
-            if (parsed != null && position.getIndex() == value.trim().length()) return parsed.getTime();
+            Date parsed = parser.parse(text, position);
+            if (parsed != null && position.getIndex() == text.length()) return parsed.getTime();
         }
         throw new IllegalArgumentException("无效的测量时间");
     }
