@@ -26,7 +26,7 @@ const api = async endpoint => {const r=await fetch(base+endpoint,{headers});asse
     assert.equal(await page.locator('#login').isVisible(),false);
     const mom=await page.locator('#member').inputValue();
     assert(mom,'default selects a single member');
-    assert.equal(await page.locator('#records tr').count(),20);
+    assert.equal(await page.locator('#records .timeline-record').count(),20);
     assert.equal(await page.locator('#stat1-label').innerText(),'平均高压');
     await page.waitForTimeout(180);await page.screenshot({path:path.join(output,'dashboard-desktop.png')});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'desktop fits');
@@ -67,7 +67,7 @@ const api = async endpoint => {const r=await fetch(base+endpoint,{headers});asse
     assert.equal(await page.locator('#stat1-value').innerText(),'—');
     await click('[data-range="30"]');
     await page.route('**/api/v1/overview?**',route=>route.fulfill({status:503,contentType:'application/json',body:'{}'}));
-    await click('#reload');assert.equal(await page.locator('#records tr').count(),20,'temporary failure retains old UI');
+    await click('#reload');assert.equal(await page.locator('#records .timeline-record').count(),20,'temporary failure retains old UI');
     assert.equal(await page.locator('#message').isVisible(),true);await page.unroute('**/api/v1/overview?**');
     await click('#reload');
     const downloadWait=page.waitForEvent('download');await click('#export');const download=await downloadWait;
@@ -136,7 +136,7 @@ const api = async endpoint => {const r=await fetch(base+endpoint,{headers});asse
     await page.screenshot({path:path.join(output,'record-mobile.png')});await click('#close-dialog');
     await page.locator('#logout').click();
     assert.equal(await page.locator('#login').isVisible(),true);
-    assert.equal(await page.locator('#records tr').count(),0);
+    assert.equal(await page.locator('#records .timeline-record').count(),0);
     assert.equal(await page.locator('#latest-pressure').innerText(),'—');
     assert.equal(await page.evaluate(()=>sessionStorage.length),0);
     assert.deepEqual(await page.evaluate(()=>Object.keys(localStorage)),[preferenceKey],'only display preferences are persisted');
